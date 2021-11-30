@@ -69,7 +69,7 @@ and SitePatientId = '""" + site_pat_id + """'
 select *
 from DiagnosisAltered
 where PatientId = '""" + pat_id + """'
-and Historical <> 'Yes'
+and (Historical <> 'Yes' or Historical is NULL)
 and length(DiagnosisName) > 0
 order by rand()
 """
@@ -124,7 +124,7 @@ cursor = cnxn.cursor()
 cursor.execute("""
 select *
 from Patient p
-join DemographicsAltered d on p.PatientId = d.PatientId
+join DemographicAltered d on p.PatientId = d.PatientId
 where Site in (""" + SETTINGS['Options']['SiteList'].strip('"') + """)
 order by rand()
 limit """ + SETTINGS['Options']['PatCnt'].strip('"') + """
