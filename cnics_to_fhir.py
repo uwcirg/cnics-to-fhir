@@ -225,7 +225,7 @@ for i in range(0, len(pat_id_list)):
         if pat_vals[0][5] is not None:
             pat_resource["resource"]["identifier"].append({
                                                            "system": "https://cnics-pro.cirg.washington.edu/",
-                                                           "value": str(pat_vals[0][5].decode("utf-8"))
+                                                           "value": pat_vals[0][5]
                                                           })
     
     
