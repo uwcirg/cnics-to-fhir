@@ -58,10 +58,12 @@ def sql_gen(obj_type, pat_id, site, site_pat_id):
     if obj_type == 0:
 #        print("select * from Patient where Site = '" + site + "' and SitePatientId = '" + site_pat_id + "'")
         return """
-select *
-from Patient
-where Site = '""" + site + """'
-and SitePatientId = '""" + site_pat_id + """'
+select p.*, min(pro.SessionId) min_session
+from Patient p
+left join ProAltered pro on pro.PatientId = p.PatientId
+where p.Site = '""" + site + """'
+and p.SitePatientId = '""" + site_pat_id + """'
+group by p.PatientId
 """
     elif obj_type == 1:
 #        print("select * from DiagnosisAltered where PatientId = '" + pat_id + "' order by DiagnosisId")
@@ -219,6 +221,13 @@ for i in range(0, len(pat_id_list)):
                                                            "system": "https://cnics.cirg.washington.edu/",
                                                            "value": pat_id_list[i][0] + ":" + str(pat_vals[0][1].decode("utf-8"))
                                                           })
+        # Lowest SessionId from the ProAltered table to make it easier for PRO system to locate patients
+        if pat_vals[0][5] is not None:
+            pat_resource["resource"]["identifier"].append({
+                                                           "system": "https://cnics-pro.cirg.washington.edu/",
+                                                           "value": pat_vals[0][5]
+                                                          })
+    
     
         # Look for demographic info for the patient, add to patient resource, if any
         pat_race_code = ""
