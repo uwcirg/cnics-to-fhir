@@ -218,13 +218,13 @@ for i in range(0, len(pat_id_list)):
         # Fill in identifiers, if any
         if pat_vals[0][1] is not None:
             pat_resource["resource"]["identifier"].append({
-                                                           "system": "https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0],
+                                                           "system": "https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower(),
                                                            "value": str(pat_vals[0][1].decode("utf-8"))
                                                           })
         # Lowest SessionId from the ProAltered table to make it easier for PRO system to locate patients
         if pat_vals[0][5] is not None:
             pat_resource["resource"]["identifier"].append({
-                                                           "system": "https://cnics-pro.cirg.washington.edu/min-session-id/" + pat_id_list[i][0],
+                                                           "system": "https://cnics-pro.cirg.washington.edu/min-session-id/" + pat_id_list[i][0].lower(),
                                                            "value": pat_vals[0][5]
                                                           })
     
@@ -430,7 +430,7 @@ for i in range(0, len(pat_id_list)):
                 cond_resource["resource"]["code"]["coding"][0]["display"] = dx_to_coding_display(dx_vals[k][7])
                 cond_resource["resource"]["code"]["text"] = dx_vals[k][7]
                 cond_resource["resource"]["identifier"].append({
-                                                                "system": "https://cnics.cirg.washington.edu/diagnosis/site-record-id/" + pat_id_list[i][0],
+                                                                "system": "https://cnics.cirg.washington.edu/diagnosis/site-record-id/" + pat_id_list[i][0].lower(),
                                                                 "value": str(dx_vals[k][4].decode("utf-8"))
                                                                })
                 cond_resource["request"]["method"] = api_call
