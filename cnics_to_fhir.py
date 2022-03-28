@@ -90,6 +90,7 @@ SECRETS = configparser.ConfigParser()
 SECRETS.read('./secrets.ini')
 
 LOG_FILE = open(SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir.log", "a", encoding="utf-8")
+LOG_LEVEL = SETTINGS['Logging']['LogLevel'].strip('"')
 
 cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
                                password = SECRETS['Database']['DataPw'].strip('"'),
@@ -179,8 +180,9 @@ for i in range(0, len(pat_id_list)):
     response = requests.get(fhir_store_path + "/Patient?identifier=https://cirg.washington.edu/site-patient-id/" + pat_id_list[i][0] + "|" + str(pat_vals[0][1].decode("utf-8") + "&_format=json"))
     response.raise_for_status()
     reply = response.json()
-    print("=====")
-    print(reply)
+    if LOG_LEVEL > 8:
+        print("=====")
+        print(reply)
 
     if reply["total"] < 2:
         # Insert or update
@@ -325,7 +327,8 @@ for i in range(0, len(pat_id_list)):
     
         final_pat_bundle["entry"].append(pat_resource)
 
-        print(orjson.dumps(final_pat_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+        if LOG_LEVEL > 8:
+            print(orjson.dumps(final_pat_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                 
         headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
         if hapi_pat_id is not None:
@@ -334,7 +337,8 @@ for i in range(0, len(pat_id_list)):
             response = requests.post(fhir_store_path, headers = headers, json = final_pat_bundle)
         response.raise_for_status()
         resource = response.json()
-        print(resource)
+        if LOG_LEVEL > 8:
+            print(resource)
 
         if hapi_pat_id is None:
             hapi_pat_id = resource["entry"][0]["response"]["location"].split("/")[1]
@@ -343,8 +347,9 @@ for i in range(0, len(pat_id_list)):
         response = requests.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json")
         response.raise_for_status()
         reply = response.json()
-        print("=====")
-        print(reply)
+        if LOG_LEVEL > 8:
+            print("=====")
+            print(reply)
         
         if "entry" in reply:
             cond_entry_actions = [None] * len(reply["entry"])
@@ -365,8 +370,9 @@ for i in range(0, len(pat_id_list)):
                     response.raise_for_status()
                     del_reply = response.json()
                     total_dx_del = total_dx_del + 1
-                    print("=====")
-                    print(del_reply)
+                    if LOG_LEVEL > 8:
+                        print("=====")
+                        print(del_reply)
         else:
             cond_entry_actions = []
         
@@ -437,7 +443,8 @@ for i in range(0, len(pat_id_list)):
 
                 final_dx_bundle["entry"].append(cond_resource)
         
-                print(orjson.dumps(final_dx_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                if LOG_LEVEL > 8:
+                    print(orjson.dumps(final_dx_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                         
                 headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                 if api_call == "PUT":
@@ -446,7 +453,8 @@ for i in range(0, len(pat_id_list)):
                     response = requests.post(fhir_store_path, headers = headers, json = final_dx_bundle)
                 response.raise_for_status()
                 resource = response.json()
-                print(resource)
+                if LOG_LEVEL > 8:
+                    print(resource)
 
     else:
         # Multiple patient resources found, halt and catch fire!
