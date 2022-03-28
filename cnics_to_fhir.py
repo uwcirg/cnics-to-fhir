@@ -180,7 +180,7 @@ for i in range(0, len(pat_id_list)):
     response = requests.get(fhir_store_path + "/Patient?identifier=https://cirg.washington.edu/site-patient-id/" + pat_id_list[i][0] + "|" + str(pat_vals[0][1].decode("utf-8") + "&_format=json"))
     response.raise_for_status()
     reply = response.json()
-    if LOG_LEVEL > 8:
+    if int(LOG_LEVEL) > 8:
         print("=====")
         print(reply)
 
@@ -327,7 +327,7 @@ for i in range(0, len(pat_id_list)):
     
         final_pat_bundle["entry"].append(pat_resource)
 
-        if LOG_LEVEL > 8:
+        if int(LOG_LEVEL) > 8:
             print(orjson.dumps(final_pat_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                 
         headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
@@ -337,7 +337,7 @@ for i in range(0, len(pat_id_list)):
             response = requests.post(fhir_store_path, headers = headers, json = final_pat_bundle)
         response.raise_for_status()
         resource = response.json()
-        if LOG_LEVEL > 8:
+        if int(LOG_LEVEL) > 8:
             print(resource)
 
         if hapi_pat_id is None:
@@ -347,7 +347,7 @@ for i in range(0, len(pat_id_list)):
         response = requests.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json")
         response.raise_for_status()
         reply = response.json()
-        if LOG_LEVEL > 8:
+        if int(LOG_LEVEL) > 8:
             print("=====")
             print(reply)
         
@@ -370,7 +370,7 @@ for i in range(0, len(pat_id_list)):
                     response.raise_for_status()
                     del_reply = response.json()
                     total_dx_del = total_dx_del + 1
-                    if LOG_LEVEL > 8:
+                    if int(LOG_LEVEL) > 8:
                         print("=====")
                         print(del_reply)
         else:
@@ -443,7 +443,7 @@ for i in range(0, len(pat_id_list)):
 
                 final_dx_bundle["entry"].append(cond_resource)
         
-                if LOG_LEVEL > 8:
+                if int(LOG_LEVEL) > 8:
                     print(orjson.dumps(final_dx_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                         
                 headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
@@ -453,7 +453,7 @@ for i in range(0, len(pat_id_list)):
                     response = requests.post(fhir_store_path, headers = headers, json = final_dx_bundle)
                 response.raise_for_status()
                 resource = response.json()
-                if LOG_LEVEL > 8:
+                if int(LOG_LEVEL) > 8:
                     print(resource)
 
     else:
