@@ -13,6 +13,8 @@ def dx_to_coding_code(dx_text):
         return dx_text
     elif re.search("^[0-9]{3}", dx_text) or re.search("^V[0-9]{2}", dx_text):
         return dx_text
+    elif dx_text in CNICS_STANDARD_DIAGNOSES:
+        return dx_text
     else:
         return "404684003"
 
@@ -20,6 +22,8 @@ def dx_to_coding_display(dx_text):
     if re.search("^[A-Z][0-9]{2}", dx_text) and not re.search("^V", dx_text):
         return dx_text
     elif re.search("^[0-9]{3}", dx_text) or re.search("^V[0-9]{2}", dx_text):
+        return dx_text
+    elif dx_text in CNICS_STANDARD_DIAGNOSES:
         return dx_text
     else:
         return "Clinical finding (finding): " + dx_text
@@ -29,6 +33,8 @@ def dx_to_coding_system(dx_text):
         return "http://hl7.org/fhir/sid/icd-10-cm"
     elif re.search("^[0-9]{3}", dx_text) or re.search("^V[0-9]{2}", dx_text):
         return "http://hl7.org/fhir/sid/icd-9-cm"
+    elif dx_text in CNICS_STANDARD_DIAGNOSES:
+        return "https://cnics.cirg.washington.edu/diagnosis-name"
     else:
         return "http://snomed.info/sct"
 
@@ -38,7 +44,13 @@ def log_it(message, email_notify = False):
         notify({'mail_date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S %z"),
                 'mail_subj': "CNICS to FHIR Notification",
                 'mail_body': message + "\n"})
-    
+
+def med_to_status(start_date, end_date, end_type):
+    if start_date is not None:
+        if end_date is not None:
+            return "stopped"
+        return "active"
+
 def notify(post_data):
     try:
         response = requests.post('https://jumpstart2.cirg.washington.edu/cgi-bin/notify-sms.cgi', data = post_data, verify = False)
@@ -73,7 +85,7 @@ from DiagnosisAltered
 where PatientId = '""" + pat_id + """'
 and (Historical <> 'Yes' or Historical is NULL)
 and length(DiagnosisName) > 0
-order by rand()
+#order by rand()
 """
     elif obj_type == 2:
 #        print("select * from DemographicAltered where PatientId = '" + pat_id + "' order by DemographicId")
@@ -82,6 +94,16 @@ select *
 from DemographicAltered
 where PatientId = '""" + pat_id + """'
 order by DemographicId
+"""
+    elif obj_type == 3:
+#        print("select * from MedicationAltered where PatientId = '" + pat_id + "' order by MedicationId")
+        return """
+select *
+from MedicationAltered
+where PatientId = '""" + pat_id + """'
+and (Historical <> 'Yes' or Historical is NULL)
+and length(MedicationName) > 0
+#order by rand()
 """
 
 SETTINGS = configparser.ConfigParser()
@@ -92,6 +114,11 @@ SECRETS.read('./secrets.ini')
 LOG_FILE = open(SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir.log", "a", encoding="utf-8")
 LOG_LEVEL = SETTINGS['Logging']['LogLevel'].strip('"')
 
+with open(SETTINGS['Codes']['StandardDiagnoses'].strip('"')) as f:
+    CNICS_STANDARD_DIAGNOSES = f.read().splitlines()
+with open(SETTINGS['Codes']['StandardMedications'].strip('"')) as f:
+    CNICS_STANDARD_MEDICATIONS = f.read().splitlines()
+    
 cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
                                password = SECRETS['Database']['DataPw'].strip('"'),
                                host = SETTINGS['Database']['DataHost'].strip('"'),
@@ -129,7 +156,7 @@ select *
 from Patient p
 join DemographicAltered d on p.PatientId = d.PatientId
 where Site in (""" + SETTINGS['Options']['SiteList'].strip('"') + """)
-order by rand()
+#order by rand()
 limit """ + SETTINGS['Options']['PatCnt'].strip('"') + """
 """)
 pat_vals = cursor.fetchall()
@@ -158,6 +185,9 @@ total_pat_upd = 0
 total_dx_del = 0
 total_dx_ins = 0
 total_dx_upd = 0
+total_med_del = 0
+total_med_ins = 0
+total_med_upd = 0
 
 for i in range(0, len(pat_id_list)):
     final_pat_bundle = {
@@ -175,6 +205,9 @@ for i in range(0, len(pat_id_list)):
     
     cursor.execute(sql_gen(2, pat_id, None, None))
     demo_vals = cursor.fetchall()
+
+    cursor.execute(sql_gen(3, pat_id, None, None))
+    med_vals = cursor.fetchall()
             
     # See if patient resource already exists, get ID if yes
     response = requests.get(fhir_store_path + "/Patient?identifier=https://cirg.washington.edu/site-patient-id/" + pat_id_list[i][0] + "|" + str(pat_vals[0][1].decode("utf-8") + "&_format=json"))
@@ -419,7 +452,7 @@ for i in range(0, len(pat_id_list)):
                                             }
                                 }
 
-                # Fill in the condition resource template and send to HAPI
+                # Fill in the Condition resource template and send to HAPI
                 if api_call == "PUT":
                     cond_resource["resource"]["id"] = cond["resource"]["id"]
                     total_dx_upd = total_dx_upd + 1
@@ -456,6 +489,107 @@ for i in range(0, len(pat_id_list)):
                 if int(LOG_LEVEL) > 8:
                     print(resource)
 
+        # Collect current medications for the patient
+        response = requests.get(fhir_store_path + "/MedicationRequest?subject=" + "Patient/" + hapi_pat_id + "&_format=json")
+        response.raise_for_status()
+        reply = response.json()
+        if int(LOG_LEVEL) > 8:
+            print("=====")
+            print(reply)
+        
+        if "entry" in reply:
+            med_entry_actions = [None] * len(reply["entry"])
+            
+            # Delete any existing medications with no matching current medication
+            for l in range(0, len(reply["entry"])):
+                med = reply["entry"][l]
+                for k in range(0, len(med_vals)):
+                    if str(med_vals[k][4].decode("utf-8")) == med["resource"]["identifier"][0]["value"]:
+                        med_entry_actions[l] = "update"
+                        break
+                    else:
+                        med_entry_actions[l] = "delete"
+                        
+            for ind in range(0, len(med_entry_actions)):
+                if med_entry_actions[ind] == "delete":
+                    response = requests.delete(fhir_store_path + "/MedicationRequest/" + reply["entry"][ind]["resource"]["id"])
+                    response.raise_for_status()
+                    del_reply = response.json()
+                    total_med_del = total_med_del + 1
+                    if int(LOG_LEVEL) > 8:
+                        print("=====")
+                        print(del_reply)
+        else:
+            med_entry_actions = []
+        
+        # Insert any new medications without existing medication or update, if existing
+        for k in range(0, len(med_vals)):
+            final_med_bundle = {
+                               "resourceType": "Bundle",
+                               "type": "transaction",
+                               "entry": []
+                              }
+            if med_vals[k][3] != int(pat_id) and med_vals[k][7].strip() != '':
+                continue
+            else:
+                api_call = "POST"
+                if "entry" in reply:
+                    for med in reply["entry"]:
+                        if str(med_vals[k][4].decode("utf-8")) == med["resource"]["identifier"][0]["value"]:
+                            api_call = "PUT"
+                            break
+
+                # Populate the bones of a condition resource
+                med_resource = {
+                                 "resource": {
+                                              "resourceType": "MedicationRequest",
+                                              "meta": { "profile": [ "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest" ] },
+                                              "intent": "order",
+                                              "medicationCodeableConcept": {
+                                                             "coding": [ {
+                                                                          "system": "https://cnics.cirg.washington.edu/medication-name"
+                                                                         } ]
+                                                            },
+                                              "subject": { "reference": "Patient/" + hapi_pat_id },
+                                              "identifier": []
+                                             },
+                                 "request": {
+                                             "url": "MedicationRequest"
+                                            }
+                                }
+
+                # Fill in the MedicationRequest resource template and send to HAPI
+                if api_call == "PUT":
+                    med_resource["resource"]["id"] = med["resource"]["id"]
+                    total_med_upd = total_med_upd + 1
+                else:
+                    total_med_ins = total_med_ins + 1
+                
+                med_resource["resource"]["status"] = med_to_status(med_vals[k][12], med_vals[k][13], med_vals[k][14])
+                med_resource["resource"]["medicationCodeableConcept"]["coding"][0]["code"] = med_vals[k][5]
+                med_resource["resource"]["medicationCodeableConcept"]["coding"][0]["display"] = med_vals[k][5]
+                med_resource["resource"]["medicationCodeableConcept"]["text"] = med_vals[k][5]
+                med_resource["resource"]["identifier"].append({
+                                                                "system": "https://cnics.cirg.washington.edu/medication/site-record-id/" + pat_id_list[i][0].lower(),
+                                                                "value": str(med_vals[k][4].decode("utf-8"))
+                                                               })
+                med_resource["request"]["method"] = api_call
+
+                final_med_bundle["entry"].append(med_resource)
+        
+                if int(LOG_LEVEL) > 8:
+                    print(orjson.dumps(final_med_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                        
+                headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+                if api_call == "PUT":
+                    response = requests.put(fhir_store_path + "/MedicationRequest/" + med["resource"]["id"], headers = headers, json = final_med_bundle["entry"][0]["resource"])
+                else:
+                    response = requests.post(fhir_store_path, headers = headers, json = final_med_bundle)
+                response.raise_for_status()
+                resource = response.json()
+                if int(LOG_LEVEL) > 8:
+                    print(resource)
+
     else:
         # Multiple patient resources found, halt and catch fire!
         log_it("ERROR: Multiple patient resources found with the same CNICS ID.  This should never happen, aborting.")
@@ -469,6 +603,9 @@ log_it("Total Patients Updated: " + str(total_pat_upd))
 log_it("Total Conditions Deleted: " + str(total_dx_del))
 log_it("Total Conditions Inserted: " + str(total_dx_ins))
 log_it("Total Conditions Updated: " + str(total_dx_upd))
+log_it("Total Medications Deleted: " + str(total_med_del))
+log_it("Total Medications Inserted: " + str(total_med_ins))
+log_it("Total Medications Updated: " + str(total_med_upd))
 log_it("Total Run Time: " + str(bench_end - bench_start))
 
 LOG_FILE.close()
