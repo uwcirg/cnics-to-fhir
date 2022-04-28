@@ -5,7 +5,7 @@ Created on Thu Jul 22 13:01:49 2021
 @author: James Sibley
 """
 
-import configparser, datetime, mysql.connector, orjson, re, requests
+import configparser, csv, datetime, mysql.connector, orjson, re, requests
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
 def dx_to_coding_code(dx_text):
@@ -114,9 +114,9 @@ SECRETS.read('./secrets.ini')
 LOG_FILE = open(SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir.log", "a", encoding="utf-8")
 LOG_LEVEL = SETTINGS['Logging']['LogLevel'].strip('"')
 
-with open(SETTINGS['Codes']['StandardDiagnoses'].strip('"')) as f:
+with open(SETTINGS['Files']['StandardDiagnoses'].strip('"')) as f:
     CNICS_STANDARD_DIAGNOSES = f.read().splitlines()
-with open(SETTINGS['Codes']['StandardMedications'].strip('"')) as f:
+with open(SETTINGS['Files']['StandardMedications'].strip('"')) as f:
     CNICS_STANDARD_MEDICATIONS = f.read().splitlines()
     
 cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
@@ -177,6 +177,24 @@ log_it("Patient Count: " + str(len(pat_id_lines)))
 for i in range(0, len(pat_id_lines)):
     pat_id_list.append(tuple([str(pat_id_lines[i].split(":")[0]), pat_id_lines[i].split(":")[1]]))
 
+# Read in MRNs from an external file to use as additional identifiers for patient resources
+# This is currently very specific for the "UW" site, will need modifications to accommodate other sites
+site_id_mrns = {}
+if SETTINGS['Options']['SiteList'].strip('"') == 'UW':
+    cnt = 0
+    mrn_file = SETTINGS['Files']['Mrns' + SETTINGS['Options']['SiteList'].strip('"')].strip('"')
+    with open(mrn_file, newline='') as csvfile:
+        spamreader = csv.reader(csvfile, delimiter=',', quotechar='"')
+        for row in spamreader:
+            if cnt != 0:
+                if str(row[2]) != 'NULL':
+                    if str(row[2]) not in site_id_mrns.keys():
+                        site_id_mrns[str(row[2])] = {}
+                    site_id_mrns[str(row[2])]['hmrn'] = str(row[0])
+                    if str(row[1]) != 'NULL':
+                        site_id_mrns[str(row[2])]['umrn'] = str(row[1])
+            cnt += 1
+
 # Query for patient data, xform to FHIR bundle, upload to HAPI as insert (if new) or update (if existing)
 bench_start = datetime.datetime.now()
 
@@ -210,7 +228,7 @@ for i in range(0, len(pat_id_list)):
     med_vals = cursor.fetchall()
             
     # See if patient resource already exists, get ID if yes
-    response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0] + "|" + str(pat_vals[0][1].decode("utf-8") + "&_format=json"))
+    response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0] + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json")
     response.raise_for_status()
     reply = response.json()
     if int(LOG_LEVEL) > 8:
@@ -262,7 +280,18 @@ for i in range(0, len(pat_id_list)):
                                                            "system": "https://cnics-pro.cirg.washington.edu/min-session-id/" + pat_id_list[i][0].lower(),
                                                            "value": pat_vals[0][5]
                                                           })
-    
+        # MRNs from the local clinic site, if available
+        if str(pat_vals[0][1].decode("utf-8")) in site_id_mrns.keys():
+            if 'hmrn' in site_id_mrns[str(pat_vals[0][1].decode("utf-8"))].keys():
+                pat_resource["resource"]["identifier"].append({
+                                                               "system": "https://cnics-pro.cirg.washington.edu/institution-mrn/" + pat_id_list[i][0].lower(),
+                                                               "value": site_id_mrns[str(pat_vals[0][1].decode("utf-8"))]['hmrn']
+                                                              })
+            if 'umrn' in site_id_mrns[str(pat_vals[0][1].decode("utf-8"))].keys():
+                pat_resource["resource"]["identifier"].append({
+                                                               "system": "https://cnics-pro.cirg.washington.edu/institution-mrn/" + pat_id_list[i][0].lower(),
+                                                               "value": site_id_mrns[str(pat_vals[0][1].decode("utf-8"))]['umrn']
+                                                              })
     
         # Look for demographic info for the patient, add to patient resource, if any
         pat_race_code = ""
