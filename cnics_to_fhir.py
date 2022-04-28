@@ -180,9 +180,9 @@ for i in range(0, len(pat_id_lines)):
 # Read in MRNs from an external file to use as additional identifiers for patient resources
 # This is currently very specific for the "UW" site, will need modifications to accommodate other sites
 site_id_mrns = {}
-if SETTINGS['Options']['SiteList'].strip('"') == 'UW':
+if SETTINGS['Options']['SiteList'].strip('"').strip("'") == 'UW':
     cnt = 0
-    mrn_file = SETTINGS['Files']['Mrns' + SETTINGS['Options']['SiteList'].strip('"')].strip('"')
+    mrn_file = SETTINGS['Files']['Mrns' + SETTINGS['Options']['SiteList'].strip('"').strip("'")].strip('"')
     with open(mrn_file, newline='') as csvfile:
         spamreader = csv.reader(csvfile, delimiter=',', quotechar='"')
         for row in spamreader:
