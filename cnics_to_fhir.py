@@ -115,11 +115,9 @@ LOG_FILE = open(SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir.log",
 LOG_LEVEL = SETTINGS['Logging']['LogLevel'].strip('"')
 
 with open(SETTINGS['Files']['StandardDiagnoses'].strip('"')) as f:
-    CNICS_STANDARD_DIAGNOSES = f.read().splitlines()
-    CNICS_STANDARD_DIAGNOSES = [i.replace('"', '') for i in CNICS_STANDARD_DIAGNOSES]
+    CNICS_STANDARD_DIAGNOSES = [i.replace('"', '') for i in f.read().splitlines()]
 with open(SETTINGS['Files']['StandardMedications'].strip('"')) as f:
-    CNICS_STANDARD_MEDICATIONS = f.read().splitlines()
-    CNICS_STANDARD_MEDICATIONS = [i.replace('"', '') for i in CNICS_STANDARD_MEDICATIONS]
+    CNICS_STANDARD_MEDICATIONS = [i.replace('"', '') for i in f.read().splitlines()]
 
 cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
                                password = SECRETS['Database']['DataPw'].strip('"'),
