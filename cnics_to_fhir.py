@@ -116,9 +116,11 @@ LOG_LEVEL = SETTINGS['Logging']['LogLevel'].strip('"')
 
 with open(SETTINGS['Files']['StandardDiagnoses'].strip('"')) as f:
     CNICS_STANDARD_DIAGNOSES = f.read().splitlines()
+    CNICS_STANDARD_DIAGNOSES = [i.replace('"', '') for i in CNICS_STANDARD_DIAGNOSES]
 with open(SETTINGS['Files']['StandardMedications'].strip('"')) as f:
     CNICS_STANDARD_MEDICATIONS = f.read().splitlines()
-    
+    CNICS_STANDARD_MEDICATIONS = [i.replace('"', '') for i in CNICS_STANDARD_MEDICATIONS]
+
 cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
                                password = SECRETS['Database']['DataPw'].strip('"'),
                                host = SETTINGS['Database']['DataHost'].strip('"'),
