@@ -275,10 +275,15 @@ for i in range(0, len(pat_id_list)):
                                                            "value": str(pat_vals[0][1].decode("utf-8"))
                                                           })
         # Lowest SessionId from the ProAltered table to make it easier for PRO system to locate patients
-        if pat_vals[0][5] is not None:
+        # For UW, the min_session index is 5, for all other sites it's 8
+        min_session_index = 8
+        if SETTINGS['Options']['SiteList'].strip('"').strip("'") == 'UW':
+            min_session_index = 5
+            
+        if pat_vals[0][min_session_index] is not None:
             pat_resource["resource"]["identifier"].append({
                                                            "system": "https://cnics-pro.cirg.washington.edu/min-session-id/" + pat_id_list[i][0].lower(),
-                                                           "value": pat_vals[0][5]
+                                                           "value": pat_vals[0][min_session_index]
                                                           })
         # MRNs from the local clinic site, if available
         if str(pat_vals[0][1].decode("utf-8")) in site_id_mrns.keys():
