@@ -228,7 +228,7 @@ for i in range(0, len(pat_id_list)):
     med_vals = cursor.fetchall()
             
     # See if patient resource already exists, get ID if yes
-    response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0] + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json")
+    response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json")
     response.raise_for_status()
     reply = response.json()
     if int(LOG_LEVEL) > 8:
