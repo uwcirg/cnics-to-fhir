@@ -126,6 +126,9 @@ cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'
                                database = SETTINGS['Database']['DataDb'].strip('"'))
 
 fhir_store_path = "http://localhost:8090/fhir"
+# Set a maximum number of resources to return in FHIR queries
+# Note this is a temporary hack, paginating results should be implemented instead
+fhir_max_count = "20000"
 pat_id_list = []
 
 # Field mapping dicts
@@ -198,6 +201,7 @@ if SETTINGS['Options']['SiteList'].strip('"').strip("'") == 'UW':
 # Query for patient data, xform to FHIR bundle, upload to HAPI as insert (if new) or update (if existing)
 bench_start = datetime.datetime.now()
 
+total_pat_del = 0
 total_pat_ins = 0
 total_pat_upd = 0
 total_dx_del = 0
@@ -206,6 +210,27 @@ total_dx_upd = 0
 total_med_del = 0
 total_med_ins = 0
 total_med_upd = 0
+
+# Collect current patients in FHIR store for the site to look for any that need to be deleted
+response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + SETTINGS['Options']['SiteList'].strip('"').strip("'").lower() + "|&_format=json&_count=" + fhir_max_count)
+response.raise_for_status()
+reply = response.json()
+if int(LOG_LEVEL) > 8:
+    print("=====")
+    print(reply)
+
+if "entry" in reply:
+    # Delete any existing patients with no matching current entry
+    for l in range(0, len(reply["entry"])):
+        pat = reply["entry"][l]
+        if pat["resource"]["identifier"][0]["value"] not in [x[1] for x in pat_id_list]:
+            response = requests.delete(fhir_store_path + "/Patient/" + pat["resource"]["id"])
+            response.raise_for_status()
+            del_reply = response.json()
+            total_pat_del = total_pat_del + 1
+            if int(LOG_LEVEL) > 8:
+                print("=====")
+                print(del_reply)
 
 for i in range(0, len(pat_id_list)):
     final_pat_bundle = {
@@ -228,7 +253,7 @@ for i in range(0, len(pat_id_list)):
     med_vals = cursor.fetchall()
             
     # See if patient resource already exists, get ID if yes
-    response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json")
+    response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json&_count=" + fhir_max_count)
     response.raise_for_status()
     reply = response.json()
     if int(LOG_LEVEL) > 8:
@@ -411,7 +436,7 @@ for i in range(0, len(pat_id_list)):
             hapi_pat_id = resource["entry"][0]["response"]["location"].split("/")[1]
         
         # Collect current conditions for the patient
-        response = requests.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json")
+        response = requests.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
         response.raise_for_status()
         reply = response.json()
         if int(LOG_LEVEL) > 8:
@@ -524,7 +549,7 @@ for i in range(0, len(pat_id_list)):
                     print(resource)
 
         # Collect current medications for the patient
-        response = requests.get(fhir_store_path + "/MedicationRequest?subject=" + "Patient/" + hapi_pat_id + "&_format=json")
+        response = requests.get(fhir_store_path + "/MedicationRequest?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
         response.raise_for_status()
         reply = response.json()
         if int(LOG_LEVEL) > 8:
@@ -632,6 +657,7 @@ cnxn.close()
 
 bench_end = datetime.datetime.now()
 
+log_it("Total Patients Deleted: " + str(total_pat_del))
 log_it("Total Patients Inserted: " + str(total_pat_ins))
 log_it("Total Patients Updated: " + str(total_pat_upd))
 log_it("Total Conditions Deleted: " + str(total_dx_del))
