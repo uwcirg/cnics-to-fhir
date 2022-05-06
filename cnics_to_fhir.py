@@ -211,6 +211,27 @@ total_med_del = 0
 total_med_ins = 0
 total_med_upd = 0
 
+# Collect current patients in FHIR store for the site to look for any that need to be deleted
+response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + SETTINGS['Options']['SiteList'].strip('"').strip("'").lower() + "|&_format=json&_count=" + fhir_max_count)
+response.raise_for_status()
+reply = response.json()
+if int(LOG_LEVEL) > 8:
+    print("=====")
+    print(reply)
+
+if "entry" in reply:
+    # Delete any existing patients with no matching current entry
+    for l in range(0, len(reply["entry"])):
+        pat = reply["entry"][l]
+        if pat["resource"]["identifier"][0]["value"] not in [x[1] for x in pat_id_list]:
+            response = requests.delete(fhir_store_path + "/Patient/" + pat["resource"]["id"] + "?_cascade=delete")
+            response.raise_for_status()
+            del_reply = response.json()
+            total_pat_del = total_pat_del + 1
+            if int(LOG_LEVEL) > 8:
+                print("=====")
+                print(del_reply)
+
 for i in range(0, len(pat_id_list)):
     final_pat_bundle = {
                         "resourceType": "Bundle",
