@@ -326,7 +326,7 @@ for i in range(0, len(pat_id_list)):
         for j in range(0, len(sess_vals)):
             pat_resource["resource"]["identifier"].append({
                                                            "system": "https://cnics-pro.cirg.washington.edu/session-id/" + pat_id_list[i][0].lower(),
-                                                           "value": sess_vals[j][6]
+                                                           "value": sess_vals[j][0]
                                                           })
         
         # MRNs from the local clinic site, if provided in a separate file
@@ -345,7 +345,7 @@ for i in range(0, len(pat_id_list)):
             uniq_pro_pat_ids = []
             uniq_pro_mrns = []
             for j in range(0, len(sess_vals)):
-                pro_cursor.execute(pro_sql_gen(5, sess_vals[j][6]))
+                pro_cursor.execute(pro_sql_gen(5, sess_vals[j][0]))
                 id_vals = pro_cursor.fetchall()
                 for k in range(0, len(id_vals)):
                     if id_vals[k][0] is not None:
