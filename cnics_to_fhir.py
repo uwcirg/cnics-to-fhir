@@ -104,7 +104,7 @@ and length(MedicationName) > 0
     elif obj_type == 4:
 #        print("select * from ProAltered where PatientId = '" + pat_id + "' order by ProId")
         return """
-select *
+select distinct SessionId
 from ProAltered
 where PatientId = '""" + pat_id + """'
 """
