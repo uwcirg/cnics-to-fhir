@@ -70,12 +70,10 @@ def sql_gen(obj_type, pat_id, site, site_pat_id):
     if obj_type == 0:
 #        print("select * from Patient where Site = '" + site + "' and SitePatientId = '" + site_pat_id + "'")
         return """
-select p.*, min(pro.SessionId) min_session
-from Patient p
-left join ProAltered pro on pro.PatientId = p.PatientId
-where p.Site = '""" + site + """'
-and p.SitePatientId = '""" + site_pat_id + """'
-group by p.PatientId
+select *
+from Patient
+where Site = '""" + site + """'
+and SitePatientId = '""" + site_pat_id + """'
 """
     elif obj_type == 1:
 #        print("select * from DiagnosisAltered where PatientId = '" + pat_id + "' order by DiagnosisId")
@@ -85,7 +83,6 @@ from DiagnosisAltered
 where PatientId = '""" + pat_id + """'
 and (Historical <> 'Yes' or Historical is NULL)
 and length(DiagnosisName) > 0
-#order by rand()
 """
     elif obj_type == 2:
 #        print("select * from DemographicAltered where PatientId = '" + pat_id + "' order by DemographicId")
@@ -103,7 +100,23 @@ from MedicationAltered
 where PatientId = '""" + pat_id + """'
 and (Historical <> 'Yes' or Historical is NULL)
 and length(MedicationName) > 0
-#order by rand()
+"""
+    elif obj_type == 4:
+#        print("select * from ProAltered where PatientId = '" + pat_id + "' order by ProId")
+        return """
+select *
+from ProAltered
+where PatientId = '""" + pat_id + """'
+"""
+
+def pro_sql_gen(obj_type, session_id):
+    if obj_type == 5:
+#        print("select * from ProAltered where PatientId = '" + pat_id + "' order by ProId")
+        return """
+select distinct p.PatientID, p.MRN
+from Patients p
+join Sessions s on p.PatientID = s.PatientID
+where s.SessionID = '""" + session_id + """'
 """
 
 SETTINGS = configparser.ConfigParser()
@@ -124,6 +137,13 @@ cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'
                                host = SETTINGS['Database']['DataHost'].strip('"'),
                                port = SETTINGS['Database']['DataPort'].strip('"'),
                                database = SETTINGS['Database']['DataDb'].strip('"'))
+# "Reveal" database connection to pull MRN identifiers from PRO database
+pro_cnxn = mysql.connector.connect(user = SETTINGS['Database']['ProUser'].strip('"'),
+                                   password = SECRETS['Database']['ProPw'].strip('"'),
+                                   host = SETTINGS['Database']['ProHost'].strip('"'),
+                                   port = SETTINGS['Database']['ProPort'].strip('"'),
+                                   database = SETTINGS['Database']['ProDb'].strip('"'))
+pro_cursor = pro_cnxn.cursor()
 
 fhir_store_path = SETTINGS['Options']['FhirUrl'].strip('"')
 # Set a maximum number of resources to return in FHIR queries
@@ -251,7 +271,10 @@ for i in range(0, len(pat_id_list)):
 
     cursor.execute(sql_gen(3, pat_id, None, None))
     med_vals = cursor.fetchall()
-            
+
+    cursor.execute(sql_gen(4, pat_id, None, None))
+    sess_vals = cursor.fetchall()
+
     # See if patient resource already exists, get ID if yes
     response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json&_count=" + fhir_max_count)
     response.raise_for_status()
@@ -299,18 +322,14 @@ for i in range(0, len(pat_id_list)):
                                                            "system": "https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower(),
                                                            "value": str(pat_vals[0][1].decode("utf-8"))
                                                           })
-        # Lowest SessionId from the ProAltered table to make it easier for PRO system to locate patients
-        # For UW, the min_session index is 5, for all other sites it's 8
-        min_session_index = 8
-        if SETTINGS['Options']['SiteList'].strip('"').strip("'") == 'UW':
-            min_session_index = 5
-            
-        if pat_vals[0][min_session_index] is not None:
+        # All SessionId values from the ProAltered table to make it easier to match patients with the PRO system
+        for j in range(0, len(sess_vals)):
             pat_resource["resource"]["identifier"].append({
-                                                           "system": "https://cnics-pro.cirg.washington.edu/min-session-id/" + pat_id_list[i][0].lower(),
-                                                           "value": pat_vals[0][min_session_index]
+                                                           "system": "https://cnics-pro.cirg.washington.edu/session-id/" + pat_id_list[i][0].lower(),
+                                                           "value": sess_vals[j][6]
                                                           })
-        # MRNs from the local clinic site, if available
+        
+        # MRNs from the local clinic site, if provided in a separate file
         if str(pat_vals[0][1].decode("utf-8")) in site_id_mrns.keys():
             if 'hmrn' in site_id_mrns[str(pat_vals[0][1].decode("utf-8"))].keys():
                 pat_resource["resource"]["identifier"].append({
@@ -322,7 +341,31 @@ for i in range(0, len(pat_id_list)):
                                                                "system": "https://cnics-pro.cirg.washington.edu/institution-mrn/" + pat_id_list[i][0].lower(),
                                                                "value": site_id_mrns[str(pat_vals[0][1].decode("utf-8"))]['umrn']
                                                               })
-    
+        else: # Get MRN and PRO PatientID values from the PRO system
+            uniq_pro_pat_ids = []
+            uniq_pro_mrns = []
+            for j in range(0, len(sess_vals)):
+                pro_cursor.execute(pro_sql_gen(5, sess_vals[j][6]))
+                id_vals = pro_cursor.fetchall()
+                for k in range(0, len(id_vals)):
+                    if id_vals[k][0] is not None:
+                        if id_vals[k][0] not in uniq_pro_pat_ids:
+                            uniq_pro_pat_ids.append(id_vals[k][0])
+                    if id_vals[k][1] is not None:
+                        if id_vals[k][1] not in uniq_pro_mrns:
+                            uniq_pro_mrns.append(id_vals[k][1])
+
+            for uniq_id in uniq_pro_pat_ids:
+                pat_resource["resource"]["identifier"].append({
+                                                               "system": "https://cnics-pro.cirg.washington.edu/pro-patient-id/" + pat_id_list[i][0].lower(),
+                                                               "value": uniq_id
+                                                              })
+            for uniq_id in uniq_pro_mrns:
+                pat_resource["resource"]["identifier"].append({
+                                                               "system": "https://cnics-pro.cirg.washington.edu/institution-mrn/" + pat_id_list[i][0].lower(),
+                                                               "value": uniq_id
+                                                              })
+
         # Look for demographic info for the patient, add to patient resource, if any
         pat_race_code = ""
         pat_race_display = ""
