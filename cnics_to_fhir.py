@@ -493,11 +493,12 @@ for i in range(0, len(pat_id_list)):
             for l in range(0, len(reply["entry"])):
                 cond = reply["entry"][l]
                 for k in range(0, len(dx_vals)):
-                    if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
-                        cond_entry_actions[l] = "update"
-                        break
-                    else:
-                        cond_entry_actions[l] = "delete"
+                    if "identifier" in cond["resource"].keys():
+                        if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
+                            cond_entry_actions[l] = "update"
+                            break
+                        else:
+                            cond_entry_actions[l] = "delete"
                         
             for ind in range(0, len(cond_entry_actions)):
                 if cond_entry_actions[ind] == "delete":
@@ -524,9 +525,10 @@ for i in range(0, len(pat_id_list)):
                 api_call = "POST"
                 if "entry" in reply:
                     for cond in reply["entry"]:
-                        if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
-                            api_call = "PUT"
-                            break
+                        if "identifier" in cond["resource"].keys():
+                            if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
+                                api_call = "PUT"
+                                break
 
                 # Populate the bones of a condition resource
                 cond_resource = {
