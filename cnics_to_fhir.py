@@ -478,7 +478,7 @@ for i in range(0, len(pat_id_list)):
         if hapi_pat_id is None:
             hapi_pat_id = resource["entry"][0]["response"]["location"].split("/")[1]
         
-        # Collect current conditions for the patient
+        # Collect current condition resources for the patient
         response = requests.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
         response.raise_for_status()
         reply = response.json()
@@ -489,15 +489,16 @@ for i in range(0, len(pat_id_list)):
         if "entry" in reply:
             cond_entry_actions = [None] * len(reply["entry"])
             
-            # Delete any existing conditions with no matching current diagnosis
+            # Delete any existing condition resources with no matching current diagnosis
             for l in range(0, len(reply["entry"])):
                 cond = reply["entry"][l]
                 for k in range(0, len(dx_vals)):
-                    if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
-                        cond_entry_actions[l] = "update"
-                        break
-                    else:
-                        cond_entry_actions[l] = "delete"
+                    if "identifier" in cond["resource"].keys():
+                        if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
+                            cond_entry_actions[l] = "update"
+                            break
+                        else:
+                            cond_entry_actions[l] = "delete"
                         
             for ind in range(0, len(cond_entry_actions)):
                 if cond_entry_actions[ind] == "delete":
@@ -511,7 +512,7 @@ for i in range(0, len(pat_id_list)):
         else:
             cond_entry_actions = []
         
-        # Insert any new diagnoses without existing condition or update, if existing
+        # Insert any new diagnoses without existing condition resource or update, if existing
         for k in range(0, len(dx_vals)):
             final_dx_bundle = {
                                "resourceType": "Bundle",
@@ -524,9 +525,10 @@ for i in range(0, len(pat_id_list)):
                 api_call = "POST"
                 if "entry" in reply:
                     for cond in reply["entry"]:
-                        if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
-                            api_call = "PUT"
-                            break
+                        if "identifier" in cond["resource"].keys():
+                            if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
+                                api_call = "PUT"
+                                break
 
                 # Populate the bones of a condition resource
                 cond_resource = {
@@ -591,7 +593,7 @@ for i in range(0, len(pat_id_list)):
                 if int(LOG_LEVEL) > 8:
                     print(resource)
 
-        # Collect current medications for the patient
+        # Collect current MedicationRequest resources for the patient
         response = requests.get(fhir_store_path + "/MedicationRequest?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
         response.raise_for_status()
         reply = response.json()
@@ -602,7 +604,7 @@ for i in range(0, len(pat_id_list)):
         if "entry" in reply:
             med_entry_actions = [None] * len(reply["entry"])
             
-            # Delete any existing medications with no matching current medication
+            # Delete any existing MedicationRequest resources with no matching current medication
             for l in range(0, len(reply["entry"])):
                 med = reply["entry"][l]
                 for k in range(0, len(med_vals)):
@@ -624,7 +626,7 @@ for i in range(0, len(pat_id_list)):
         else:
             med_entry_actions = []
         
-        # Insert any new medications without existing medication or update, if existing
+        # Insert any new medications without existing MedicationRequest resource or update, if existing
         for k in range(0, len(med_vals)):
             final_med_bundle = {
                                "resourceType": "Bundle",
@@ -641,7 +643,7 @@ for i in range(0, len(pat_id_list)):
                             api_call = "PUT"
                             break
 
-                # Populate the bones of a condition resource
+                # Populate the bones of a MedicationRequest resource
                 med_resource = {
                                  "resource": {
                                               "resourceType": "MedicationRequest",
@@ -694,7 +696,7 @@ for i in range(0, len(pat_id_list)):
 
     else:
         # Multiple patient resources found, halt and catch fire!
-        log_it("ERROR: Multiple patient resources found with the same CNICS ID.  This should never happen, aborting.")
+        log_it("ERROR: Multiple patient resources (" + str(reply["total"]) + ") found with the same CNICS ID: "  + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + ".  This should never happen, aborting.")
 
 cnxn.close()
 
