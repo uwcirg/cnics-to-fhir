@@ -108,6 +108,15 @@ select distinct SessionId
 from ProAltered
 where PatientId = '""" + pat_id + """'
 """
+    elif obj_type == 5:
+#        print("select * from LabAltered where PatientId = '" + pat_id + "' order by LabId")
+        return """
+select *
+from LabAltered
+where PatientId = '""" + pat_id + """'
+and (Historical <> 'Yes' or Historical is NULL)
+and length(TestName) > 0
+"""
 
 def pro_sql_gen(obj_type, session_id):
     if obj_type == 5:
@@ -148,7 +157,7 @@ pro_cursor = pro_cnxn.cursor()
 fhir_store_path = SETTINGS['Options']['FhirUrl'].strip('"')
 # Set a maximum number of resources to return in FHIR queries
 # Note this is a temporary hack, paginating results should be implemented instead
-fhir_max_count = "20000"
+fhir_max_count = "50000"
 pat_id_list = []
 
 # Which types of resources should we include in this ETL run, read from settings file
@@ -198,6 +207,9 @@ with open(pat_id_fn) as pat_id_file:
 
 log_it("==================================================================")
 log_it("Run Date/Time: " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+log_it("FHIR URL: " + SETTINGS['Options']['FhirUrl'].strip('"'))
+log_it("Resource List: " + SETTINGS['Options']['ResourceList'].strip('"'))
+log_it("Site List: " + SETTINGS['Options']['SiteList'].strip('"'))
 log_it("Patient Count: " + str(len(pat_id_lines)))
 
 for i in range(0, len(pat_id_lines)):
@@ -233,6 +245,9 @@ total_dx_upd = 0
 total_med_del = 0
 total_med_ins = 0
 total_med_upd = 0
+total_lab_del = 0
+total_lab_ins = 0
+total_lab_upd = 0
 
 # Collect current patients in FHIR store for the site to look for any that need to be deleted
 response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + SETTINGS['Options']['SiteList'].strip('"').strip("'").lower() + "|&_format=json&_count=" + fhir_max_count)
@@ -277,6 +292,9 @@ for i in range(0, len(pat_id_list)):
 
     cursor.execute(sql_gen(4, pat_id, None, None))
     sess_vals = cursor.fetchall()
+
+    cursor.execute(sql_gen(5, pat_id, None, None))
+    lab_vals = cursor.fetchall()
 
     # See if patient resource already exists, get ID if yes
     response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json&_count=" + fhir_max_count)
@@ -638,7 +656,7 @@ for i in range(0, len(pat_id_list)):
                                    "type": "transaction",
                                    "entry": []
                                   }
-                if med_vals[k][3] != int(pat_id) and med_vals[k][7].strip() != '':
+                if med_vals[k][3] != int(pat_id) and med_vals[k][5].strip() != '':
                     continue
                 else:
                     api_call = "POST"
@@ -699,6 +717,153 @@ for i in range(0, len(pat_id_list)):
                     if int(LOG_LEVEL) > 8:
                         print(resource)
 
+        # If selected, collect current observation resources for the patient
+        if "observations" in resource_list:
+            response = requests.get(fhir_store_path + "/Observation?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
+            response.raise_for_status()
+            reply = response.json()
+            if int(LOG_LEVEL) > 8:
+                print("=====")
+                print(reply)
+            
+            if "entry" in reply:
+                obs_entry_actions = [None] * len(reply["entry"])
+                
+                # Delete any existing observation resources with no matching current lab
+                for l in range(0, len(reply["entry"])):
+                    obs = reply["entry"][l]
+                    for k in range(0, len(lab_vals)):
+                        if "identifier" in obs["resource"].keys():
+                            if str(lab_vals[k][4].decode("utf-8")) == obs["resource"]["identifier"][0]["value"]:
+                                obs_entry_actions[l] = "update"
+                                break
+                            else:
+                                obs_entry_actions[l] = "delete"
+                            
+                for ind in range(0, len(obs_entry_actions)):
+                    if obs_entry_actions[ind] == "delete":
+                        response = requests.delete(fhir_store_path + "/Observation/" + reply["entry"][ind]["resource"]["id"])
+                        response.raise_for_status()
+                        del_reply = response.json()
+                        total_lab_del = total_lab_del + 1
+                        if int(LOG_LEVEL) > 8:
+                            print("=====")
+                            print(del_reply)
+            else:
+                obs_entry_actions = []
+            
+            # Insert any new labs without existing observation resource or update, if existing
+            for k in range(0, len(lab_vals)):
+                final_lab_bundle = {
+                                    "resourceType": "Bundle",
+                                    "type": "transaction",
+                                    "entry": []
+                                   }
+                if lab_vals[k][3] != int(pat_id) and lab_vals[k][5].strip() != '':
+                    continue
+                else:
+                    api_call = "POST"
+                    if "entry" in reply:
+                        for obs in reply["entry"]:
+                            if "identifier" in obs["resource"].keys():
+                                if str(lab_vals[k][4].decode("utf-8")) == obs["resource"]["identifier"][0]["value"]:
+                                    api_call = "PUT"
+                                    break
+    
+                    # Populate the bones of an observation resource
+                    obs_resource = {
+                                     "resource": {
+                                                  "resourceType": "Observation",
+                                                  "meta": { "profile": [ "http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab" ] },
+                                                  "status": "final",
+                                                  "category": [ {
+                                                                 "coding": [ {
+                                                                              "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                                                                              "code": "laboratory",
+                                                                              "display": "laboratory"
+                                                                             } ]
+                                                                 } ],
+                                                  "code": {
+                                                           "coding": [ { 
+                                                                        "system": "https://cnics.cirg.washington.edu/test-name"
+                                                                       } ]
+                                                          },
+                                                  "valueQuantity": {
+                                                                    "coding": [ { 
+                                                                                 "system": "http://unitsofmeasure.org"
+                                                                                } ]
+                                                                   },
+                                                  "subject": { "reference": "Patient/" + hapi_pat_id },
+                                                  "identifier": []
+                                                 },
+                                     "request": {
+                                                 "url": "Observation"
+                                                }
+                                    }
+    
+                    # Fill in the Observation resource template and send to HAPI
+                    if api_call == "PUT":
+                        obs_resource["resource"]["id"] = obs["resource"]["id"]
+                        total_lab_upd = total_lab_upd + 1
+                    else:
+                        total_lab_ins = total_lab_ins + 1
+                    
+                    if lab_vals[k][9] is not None:
+                        obs_resource["resource"]["effectiveDateTime"] = lab_vals[k][9].strftime("%Y-%m-%d")
+                    obs_resource["resource"]["code"]["coding"][0]["code"] = lab_vals[k][5]
+                    obs_resource["resource"]["code"]["coding"][0]["display"] = lab_vals[k][5]
+                    obs_resource["resource"]["code"]["text"] = lab_vals[k][5]
+                    obs_resource["resource"]["valueQuantity"]["value"] = lab_vals[k][6]
+                    obs_resource["resource"]["valueQuantity"]["unit"] = lab_vals[k][7]
+                    obs_resource["resource"]["valueQuantity"]["code"] = lab_vals[k][7]
+                    if lab_vals[k][10] is not None or lab_vals[k][11] is not None:
+                        obs_resource["resource"]["referenceRange"] = [ {
+                                                                        "type" : {
+                                                                                  "coding" : [ {
+                                                                                                "system" : "http://terminology.hl7.org/CodeSystem/referencerange-meaning",
+                                                                                                "code" : "normal",
+                                                                                                "display" : "Normal Range"
+                                                                                               }
+                                                                                             ],
+                                                                                  "text" : "Normal Range"
+                                                                                 }
+
+                                                                       } ]
+                        if lab_vals[k][10] is not None:
+                            obs_resource["resource"]["referenceRange"][0]["low"] = {
+                                                                                    "value" : lab_vals[k][10],
+                                                                                    "unit" : lab_vals[k][7],
+                                                                                    "system" : "http://unitsofmeasure.org",
+                                                                                    "code" : lab_vals[k][7]
+                                                                                   }
+                        if lab_vals[k][11] is not None:
+                            obs_resource["resource"]["referenceRange"][0]["high"] = {
+                                                                                    "value" : lab_vals[k][11],
+                                                                                    "unit" : lab_vals[k][7],
+                                                                                    "system" : "http://unitsofmeasure.org",
+                                                                                    "code" : lab_vals[k][7]
+                                                                                   }
+                    obs_resource["resource"]["identifier"].append({
+                                                                    "system": "https://cnics.cirg.washington.edu/lab/site-record-id/" + pat_id_list[i][0].lower(),
+                                                                    "value": str(lab_vals[k][4].decode("utf-8"))
+                                                                   })
+                    obs_resource["request"]["method"] = api_call
+    
+                    final_lab_bundle["entry"].append(obs_resource)
+            
+                    if int(LOG_LEVEL) > 8:
+                        print(orjson.dumps(final_lab_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                            
+                    headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+                    if api_call == "PUT":
+                        response = requests.put(fhir_store_path + "/Observation/" + obs["resource"]["id"], headers = headers, json = final_lab_bundle["entry"][0]["resource"])
+                    else:
+                        response = requests.post(fhir_store_path, headers = headers, json = final_lab_bundle)
+                    response.raise_for_status()
+                    resource = response.json()
+                    if int(LOG_LEVEL) > 8:
+                        print(resource)
+
     else:
         # Multiple patient resources found, halt and catch fire!
         log_it("ERROR: Multiple patient resources (" + str(reply["total"]) + ") found with the same CNICS ID: "  + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + ".  This should never happen, aborting.")
@@ -716,6 +881,9 @@ log_it("Total Conditions Updated: " + str(total_dx_upd))
 log_it("Total Medications Deleted: " + str(total_med_del))
 log_it("Total Medications Inserted: " + str(total_med_ins))
 log_it("Total Medications Updated: " + str(total_med_upd))
+log_it("Total Observations Deleted: " + str(total_lab_del))
+log_it("Total Observations Inserted: " + str(total_lab_ins))
+log_it("Total Observations Updated: " + str(total_lab_upd))
 log_it("Total Run Time: " + str(bench_end - bench_start))
 
 LOG_FILE.close()
