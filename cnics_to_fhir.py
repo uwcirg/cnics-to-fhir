@@ -874,7 +874,7 @@ for i in range(0, len(pat_id_list)):
                                                                                          }
         
                                                                                } ]
-                                if re.search("^" + decimal_re + "$", str(lab_vals[k][10]) != None:
+                                if re.search("^" + decimal_re + "$", str(lab_vals[k][10])) != None:
                                     obs_resource["resource"]["referenceRange"][0]["low"] = {
                                                                                             "value" : lab_vals[k][10]
                                                                                            }
