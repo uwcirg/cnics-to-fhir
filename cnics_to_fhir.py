@@ -846,53 +846,52 @@ for i in range(0, len(pat_id_list)):
                             obs_resource["resource"][value_type]["high"]["value"] = value_val_high
                         else:
                             obs_resource["resource"][value_type]["value"] = value_val
+                        if value_comparator != None:
+                            obs_resource["resource"][value_type]["comparator"] = value_comparator
+                        if lab_vals[k][7] != None:
+                            if value_type == "valueRange":
+                                obs_resource["resource"][value_type]["low"]["unit"] = lab_vals[k][7]
+                                obs_resource["resource"][value_type]["low"]["system"] = "http://unitsofmeasure.org"
+                                obs_resource["resource"][value_type]["low"]["code"] = lab_vals[k][7]
+                                obs_resource["resource"][value_type]["high"]["unit"] = lab_vals[k][7]
+                                obs_resource["resource"][value_type]["high"]["system"] = "http://unitsofmeasure.org"
+                                obs_resource["resource"][value_type]["high"]["code"] = lab_vals[k][7]
+                            else :
+                                obs_resource["resource"][value_type]["unit"] = lab_vals[k][7]
+                                obs_resource["resource"][value_type]["system"] = "http://unitsofmeasure.org"
+                                obs_resource["resource"][value_type]["code"] = lab_vals[k][7]
+                        if lab_vals[k][10] != None or lab_vals[k][11] != None:
+                            obs_resource["resource"]["referenceRange"] = [ {
+                                                                            "type" : {
+                                                                                      "coding" : [ {
+                                                                                                    "system" : "http://terminology.hl7.org/CodeSystem/referencerange-meaning",
+                                                                                                    "code" : "normal",
+                                                                                                    "display" : "Normal Range"
+                                                                                                   }
+                                                                                                 ],
+                                                                                      "text" : "Normal Range"
+                                                                                     }
+    
+                                                                           } ]
+                            if lab_vals[k][10] is not None:
+                                obs_resource["resource"]["referenceRange"][0]["low"] = {
+                                                                                        "value" : lab_vals[k][10]
+                                                                                       }
+                                if lab_vals[k][7] != None:
+                                    obs_resource["resource"]["referenceRange"][0]["low"]["unit"] = lab_vals[k][7]
+                                    obs_resource["resource"]["referenceRange"][0]["low"]["system"] = "http://unitsofmeasure.org"
+                                    obs_resource["resource"]["referenceRange"][0]["low"]["code"] = lab_vals[k][7]
+    
+                            if lab_vals[k][11] is not None:
+                                obs_resource["resource"]["referenceRange"][0]["high"] = {
+                                                                                        "value" : lab_vals[k][11]
+                                                                                        }
+                                if lab_vals[k][7] != None:
+                                    obs_resource["resource"]["referenceRange"][0]["high"]["unit"] = lab_vals[k][7]
+                                    obs_resource["resource"]["referenceRange"][0]["high"]["system"] = "http://unitsofmeasure.org"
+                                    obs_resource["resource"]["referenceRange"][0]["high"]["code"] = lab_vals[k][7]
                     else:
                         obs_resource["resource"][value_type] = value_val
-
-                    if value_comparator != None:
-                        obs_resource["resource"][value_type]["comparator"] = value_comparator
-                    if value_type in ["valueRange", "valueQuantity"] and lab_vals[k][7] != None:
-                        if value_type == "valueRange":
-                            obs_resource["resource"][value_type]["low"]["unit"] = lab_vals[k][7]
-                            obs_resource["resource"][value_type]["low"]["system"] = "http://unitsofmeasure.org"
-                            obs_resource["resource"][value_type]["low"]["code"] = lab_vals[k][7]
-                            obs_resource["resource"][value_type]["high"]["unit"] = lab_vals[k][7]
-                            obs_resource["resource"][value_type]["high"]["system"] = "http://unitsofmeasure.org"
-                            obs_resource["resource"][value_type]["high"]["code"] = lab_vals[k][7]
-                        else :
-                            obs_resource["resource"][value_type]["unit"] = lab_vals[k][7]
-                            obs_resource["resource"][value_type]["system"] = "http://unitsofmeasure.org"
-                            obs_resource["resource"][value_type]["code"] = lab_vals[k][7]
-                    if lab_vals[k][10] != None or lab_vals[k][11] != None:
-                        obs_resource["resource"]["referenceRange"] = [ {
-                                                                        "type" : {
-                                                                                  "coding" : [ {
-                                                                                                "system" : "http://terminology.hl7.org/CodeSystem/referencerange-meaning",
-                                                                                                "code" : "normal",
-                                                                                                "display" : "Normal Range"
-                                                                                               }
-                                                                                             ],
-                                                                                  "text" : "Normal Range"
-                                                                                 }
-
-                                                                       } ]
-                        if lab_vals[k][10] is not None:
-                            obs_resource["resource"]["referenceRange"][0]["low"] = {
-                                                                                    "value" : lab_vals[k][10]
-                                                                                   }
-                            if lab_vals[k][7] != None:
-                                obs_resource["resource"]["referenceRange"][0]["low"]["unit"] = lab_vals[k][7]
-                                obs_resource["resource"]["referenceRange"][0]["low"]["system"] = "http://unitsofmeasure.org"
-                                obs_resource["resource"]["referenceRange"][0]["low"]["code"] = lab_vals[k][7]
-
-                        if lab_vals[k][11] is not None:
-                            obs_resource["resource"]["referenceRange"][0]["high"] = {
-                                                                                    "value" : lab_vals[k][11]
-                                                                                    }
-                            if lab_vals[k][7] != None:
-                                obs_resource["resource"]["referenceRange"][0]["high"]["unit"] = lab_vals[k][7]
-                                obs_resource["resource"]["referenceRange"][0]["high"]["system"] = "http://unitsofmeasure.org"
-                                obs_resource["resource"]["referenceRange"][0]["high"]["code"] = lab_vals[k][7]
 
                     obs_resource["resource"]["identifier"].append({
                                                                     "system": "https://cnics.cirg.washington.edu/lab/site-record-id/" + pat_id_list[i][0].lower(),
