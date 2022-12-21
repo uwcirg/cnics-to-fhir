@@ -861,7 +861,7 @@ for i in range(0, len(pat_id_list)):
                                 obs_resource["resource"][value_type]["system"] = "http://unitsofmeasure.org"
                                 obs_resource["resource"][value_type]["code"] = lab_vals[k][7]
                         if lab_vals[k][10] != None or lab_vals[k][11] != None:
-                            if re.search("^" + decimal_re + "$", lab_vals[k][10]) != None or re.search("^" + decimal_re + "$", lab_vals[k][11]) != None:
+                            if re.search("^" + decimal_re + "$", str(lab_vals[k][10])) != None or re.search("^" + decimal_re + "$", str(lab_vals[k][11])) != None:
                                 obs_resource["resource"]["referenceRange"] = [ {
                                                                                 "type" : {
                                                                                           "coding" : [ {
@@ -874,7 +874,7 @@ for i in range(0, len(pat_id_list)):
                                                                                          }
         
                                                                                } ]
-                                if re.search("^" + decimal_re + "$", lab_vals[k][10]) != None:
+                                if re.search("^" + decimal_re + "$", str(lab_vals[k][10]) != None:
                                     obs_resource["resource"]["referenceRange"][0]["low"] = {
                                                                                             "value" : lab_vals[k][10]
                                                                                            }
@@ -883,7 +883,7 @@ for i in range(0, len(pat_id_list)):
                                         obs_resource["resource"]["referenceRange"][0]["low"]["system"] = "http://unitsofmeasure.org"
                                         obs_resource["resource"]["referenceRange"][0]["low"]["code"] = lab_vals[k][7]
         
-                                if re.search("^" + decimal_re + "$", lab_vals[k][11]) != None:
+                                if re.search("^" + decimal_re + "$", str(lab_vals[k][11])) != None:
                                     obs_resource["resource"]["referenceRange"][0]["high"] = {
                                                                                             "value" : lab_vals[k][11]
                                                                                             }
