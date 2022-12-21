@@ -815,7 +815,7 @@ for i in range(0, len(pat_id_list)):
                     value_val_high = None
                     value_val_low = None
                     integer_re = '([0]|[-+]?\s*[1-9][0-9]*)'
-                    decimal_re = '-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?'
+                    decimal_re = '(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)'
                     range_re = '([0]|[-+]?\s*[1-9][0-9]*)\s*-\s*([0]|[-+]?\s*[1-9][0-9]*)'
                     comparator_re = '(<|<=|>=|>)'
                     # if integer, use 'valueInteger'
@@ -833,7 +833,7 @@ for i in range(0, len(pat_id_list)):
                     elif re.search("^" + comparator_re + decimal_re + "$", value_val) != None:
                         value_type = "valueQuantity"
                         value_comparator = re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[0]
-                        value_val = "".join(re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[1:])
+                        value_val = re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[1]
                     else:
                         value_type = "valueString"
                         value_val = "\"" + value_val + "\""
