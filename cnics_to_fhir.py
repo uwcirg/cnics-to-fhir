@@ -836,7 +836,6 @@ for i in range(0, len(pat_id_list)):
                         value_val = re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[1]
                     else:
                         value_type = "valueString"
-                        value_val = "\"" + value_val + "\""
 
                     obs_resource["resource"][value_type] = {}
                     if value_type == "valueRange":
