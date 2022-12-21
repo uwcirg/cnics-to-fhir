@@ -894,7 +894,7 @@ for i in range(0, len(pat_id_list)):
                     obs_resource["resource"]["identifier"].append({
                                                                     "system": "https://cnics.cirg.washington.edu/lab/site-record-id/" + pat_id_list[i][0].lower(),
                                                                     "value": str(lab_vals[k][4].decode("utf-8"))
-                                                                   })
+                                                                  })
                     obs_resource["request"]["method"] = api_call
     
                     final_lab_bundle["entry"].append(obs_resource)
