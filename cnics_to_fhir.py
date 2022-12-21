@@ -734,7 +734,7 @@ for i in range(0, len(pat_id_list)):
                     obs = reply["entry"][l]
                     for k in range(0, len(lab_vals)):
                         if "identifier" in obs["resource"].keys():
-                            if str(lab_vals[k][4].decode("utf-8")) == obs["resource"]["identifier"][0]["value"]:
+                            if lab_vals[k][4] == obs["resource"]["identifier"][0]["value"]:
                                 obs_entry_actions[l] = "update"
                                 break
                             else:
@@ -766,7 +766,7 @@ for i in range(0, len(pat_id_list)):
                     if "entry" in reply:
                         for obs in reply["entry"]:
                             if "identifier" in obs["resource"].keys():
-                                if str(lab_vals[k][4].decode("utf-8")) == obs["resource"]["identifier"][0]["value"]:
+                                if lab_vals[k][4] == obs["resource"]["identifier"][0]["value"]:
                                     api_call = "PUT"
                                     break
     
@@ -893,7 +893,7 @@ for i in range(0, len(pat_id_list)):
 
                     obs_resource["resource"]["identifier"].append({
                                                                     "system": "https://cnics.cirg.washington.edu/lab/site-record-id/" + pat_id_list[i][0].lower(),
-                                                                    "value": str(lab_vals[k][4].decode("utf-8"))
+                                                                    "value": lab_vals[k][4]
                                                                   })
                     obs_resource["request"]["method"] = api_call
     
