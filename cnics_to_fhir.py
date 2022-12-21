@@ -837,17 +837,21 @@ for i in range(0, len(pat_id_list)):
                     else:
                         value_type = "valueString"
 
-                    obs_resource["resource"][value_type] = {}
-                    if value_type == "valueRange":
-                        obs_resource["resource"][value_type]["low"] = {}
-                        obs_resource["resource"][value_type]["low"]["value"] = value_val_low
-                        obs_resource["resource"][value_type]["high"] = {}
-                        obs_resource["resource"][value_type]["high"]["value"] = value_val_high
+                    if value_type in ["valueRange", "valueQuantity"]:
+                        obs_resource["resource"][value_type] = {}
+                        if value_type == "valueRange":
+                            obs_resource["resource"][value_type]["low"] = {}
+                            obs_resource["resource"][value_type]["low"]["value"] = value_val_low
+                            obs_resource["resource"][value_type]["high"] = {}
+                            obs_resource["resource"][value_type]["high"]["value"] = value_val_high
+                        else:
+                            obs_resource["resource"][value_type]["value"] = value_val
                     else:
-                        obs_resource["resource"][value_type]["value"] = value_val
+                        obs_resource["resource"][value_type] = value_val
+
                     if value_comparator != None:
                         obs_resource["resource"][value_type]["comparator"] = value_comparator
-                    if lab_vals[k][7] != None:
+                    if value_type in ["valueRange", "valueQuantity"] and lab_vals[k][7] != None:
                         if value_type == "valueRange":
                             obs_resource["resource"][value_type]["low"]["unit"] = lab_vals[k][7]
                             obs_resource["resource"][value_type]["low"]["system"] = "http://unitsofmeasure.org"
