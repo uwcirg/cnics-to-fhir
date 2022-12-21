@@ -860,36 +860,37 @@ for i in range(0, len(pat_id_list)):
                                 obs_resource["resource"][value_type]["unit"] = lab_vals[k][7]
                                 obs_resource["resource"][value_type]["system"] = "http://unitsofmeasure.org"
                                 obs_resource["resource"][value_type]["code"] = lab_vals[k][7]
-                        if re.search("^" + decimal_re + "$", lab_vals[k][10]) != None or re.search("^" + decimal_re + "$", lab_vals[k][11]) != None:
-                            obs_resource["resource"]["referenceRange"] = [ {
-                                                                            "type" : {
-                                                                                      "coding" : [ {
-                                                                                                    "system" : "http://terminology.hl7.org/CodeSystem/referencerange-meaning",
-                                                                                                    "code" : "normal",
-                                                                                                    "display" : "Normal Range"
-                                                                                                   }
-                                                                                                 ],
-                                                                                      "text" : "Normal Range"
-                                                                                     }
-    
-                                                                           } ]
-                            if re.search("^" + decimal_re + "$", lab_vals[k][10]) != None:
-                                obs_resource["resource"]["referenceRange"][0]["low"] = {
-                                                                                        "value" : lab_vals[k][10]
-                                                                                       }
-                                if lab_vals[k][7] != None:
-                                    obs_resource["resource"]["referenceRange"][0]["low"]["unit"] = lab_vals[k][7]
-                                    obs_resource["resource"]["referenceRange"][0]["low"]["system"] = "http://unitsofmeasure.org"
-                                    obs_resource["resource"]["referenceRange"][0]["low"]["code"] = lab_vals[k][7]
-    
-                            if re.search("^" + decimal_re + "$", lab_vals[k][11]) != None:
-                                obs_resource["resource"]["referenceRange"][0]["high"] = {
-                                                                                        "value" : lab_vals[k][11]
-                                                                                        }
-                                if lab_vals[k][7] != None:
-                                    obs_resource["resource"]["referenceRange"][0]["high"]["unit"] = lab_vals[k][7]
-                                    obs_resource["resource"]["referenceRange"][0]["high"]["system"] = "http://unitsofmeasure.org"
-                                    obs_resource["resource"]["referenceRange"][0]["high"]["code"] = lab_vals[k][7]
+                        if lab_vals[k][10] != None or lab_vals[k][11] != None:
+                            if re.search("^" + decimal_re + "$", lab_vals[k][10]) != None or re.search("^" + decimal_re + "$", lab_vals[k][11]) != None:
+                                obs_resource["resource"]["referenceRange"] = [ {
+                                                                                "type" : {
+                                                                                          "coding" : [ {
+                                                                                                        "system" : "http://terminology.hl7.org/CodeSystem/referencerange-meaning",
+                                                                                                        "code" : "normal",
+                                                                                                        "display" : "Normal Range"
+                                                                                                       }
+                                                                                                     ],
+                                                                                          "text" : "Normal Range"
+                                                                                         }
+        
+                                                                               } ]
+                                if re.search("^" + decimal_re + "$", lab_vals[k][10]) != None:
+                                    obs_resource["resource"]["referenceRange"][0]["low"] = {
+                                                                                            "value" : lab_vals[k][10]
+                                                                                           }
+                                    if lab_vals[k][7] != None:
+                                        obs_resource["resource"]["referenceRange"][0]["low"]["unit"] = lab_vals[k][7]
+                                        obs_resource["resource"]["referenceRange"][0]["low"]["system"] = "http://unitsofmeasure.org"
+                                        obs_resource["resource"]["referenceRange"][0]["low"]["code"] = lab_vals[k][7]
+        
+                                if re.search("^" + decimal_re + "$", lab_vals[k][11]) != None:
+                                    obs_resource["resource"]["referenceRange"][0]["high"] = {
+                                                                                            "value" : lab_vals[k][11]
+                                                                                            }
+                                    if lab_vals[k][7] != None:
+                                        obs_resource["resource"]["referenceRange"][0]["high"]["unit"] = lab_vals[k][7]
+                                        obs_resource["resource"]["referenceRange"][0]["high"]["system"] = "http://unitsofmeasure.org"
+                                        obs_resource["resource"]["referenceRange"][0]["high"]["code"] = lab_vals[k][7]
                     else:
                         obs_resource["resource"][value_type] = value_val
 
