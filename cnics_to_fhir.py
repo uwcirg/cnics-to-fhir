@@ -788,11 +788,6 @@ for i in range(0, len(pat_id_list)):
                                                                         "system": "https://cnics.cirg.washington.edu/test-name"
                                                                        } ]
                                                           },
-                                                  "valueQuantity": {
-                                                                    "coding": [ { 
-                                                                                 "system": "http://unitsofmeasure.org"
-                                                                                } ]
-                                                                   },
                                                   "subject": { "reference": "Patient/" + hapi_pat_id },
                                                   "identifier": []
                                                  },
@@ -813,10 +808,59 @@ for i in range(0, len(pat_id_list)):
                     obs_resource["resource"]["code"]["coding"][0]["code"] = lab_vals[k][5]
                     obs_resource["resource"]["code"]["coding"][0]["display"] = lab_vals[k][5]
                     obs_resource["resource"]["code"]["text"] = lab_vals[k][5]
-                    obs_resource["resource"]["valueQuantity"]["value"] = lab_vals[k][6]
-                    obs_resource["resource"]["valueQuantity"]["unit"] = lab_vals[k][7]
-                    obs_resource["resource"]["valueQuantity"]["code"] = lab_vals[k][7]
-                    if lab_vals[k][10] is not None or lab_vals[k][11] is not None:
+                    
+                    # Determine type of 'value[x]' to use based on the value of the lab result
+                    value_val = lab_vals[k][6]
+                    value_comparator = None
+                    value_val_high = None
+                    value_val_low = None
+                    integer_re = '([0]|[-+]?\s*[1-9][0-9]*)'
+                    decimal_re = '-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?'
+                    range_re = '([0]|[-+]?\s*[1-9][0-9]*)\s*-\s*([0]|[-+]?\s*[1-9][0-9]*)'
+                    comparator_re = '(<|<=|>=|>)'
+                    # if integer, use 'valueInteger'
+                    if re.search("^" + integer_re + "$", value_val) != None:
+                        value_type = "valueInteger"
+                    # if range, use 'valueRange' with 'high' and 'low' elements
+                    elif re.search("^" + range_re + "$", value_val) != None:
+                        value_type = "valueRange"
+                        value_val_high = re.search("^" + range_re + "$", value_val).groups()[1]
+                        value_val_low = re.search("^" + range_re + "$", value_val).groups()[0]
+                    # if decimal, use 'valueQuantity'
+                    elif re.search("^" + decimal_re + "$", value_val) != None:
+                        value_type = "valueQuantity"
+                    # if there's a comaprator prior to the decimal, use 'valueQuantity' and add in a 'valueComparator' element
+                    elif re.search("^" + comparator_re + decimal_re + "$", value_val) != None:
+                        value_type = "valueQuantity"
+                        value_comparator = re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[0]
+                        value_val = "".join(re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[1:])
+                    else:
+                        value_type = "valueString"
+                        value_val = "\"" + value_val + "\""
+
+                    obs_resource["resource"][value_type] = {}
+                    if value_type == "valueRange":
+                        obs_resource["resource"][value_type]["low"] = {}
+                        obs_resource["resource"][value_type]["low"]["value"] = value_val_low
+                        obs_resource["resource"][value_type]["high"] = {}
+                        obs_resource["resource"][value_type]["high"]["value"] = value_val_high
+                    else:
+                        obs_resource["resource"][value_type]["value"] = value_val
+                    if value_comparator != None:
+                        obs_resource["resource"][value_type]["comparator"] = value_comparator
+                    if lab_vals[k][7] != None:
+                        if value_type == "valueRange":
+                            obs_resource["resource"][value_type]["low"]["unit"] = lab_vals[k][7]
+                            obs_resource["resource"][value_type]["low"]["system"] = "http://unitsofmeasure.org"
+                            obs_resource["resource"][value_type]["low"]["code"] = lab_vals[k][7]
+                            obs_resource["resource"][value_type]["high"]["unit"] = lab_vals[k][7]
+                            obs_resource["resource"][value_type]["high"]["system"] = "http://unitsofmeasure.org"
+                            obs_resource["resource"][value_type]["high"]["code"] = lab_vals[k][7]
+                        else :
+                            obs_resource["resource"][value_type]["unit"] = lab_vals[k][7]
+                            obs_resource["resource"][value_type]["system"] = "http://unitsofmeasure.org"
+                            obs_resource["resource"][value_type]["code"] = lab_vals[k][7]
+                    if lab_vals[k][10] != None or lab_vals[k][11] != None:
                         obs_resource["resource"]["referenceRange"] = [ {
                                                                         "type" : {
                                                                                   "coding" : [ {
@@ -831,18 +875,22 @@ for i in range(0, len(pat_id_list)):
                                                                        } ]
                         if lab_vals[k][10] is not None:
                             obs_resource["resource"]["referenceRange"][0]["low"] = {
-                                                                                    "value" : lab_vals[k][10],
-                                                                                    "unit" : lab_vals[k][7],
-                                                                                    "system" : "http://unitsofmeasure.org",
-                                                                                    "code" : lab_vals[k][7]
+                                                                                    "value" : lab_vals[k][10]
                                                                                    }
+                            if lab_vals[k][7] != None:
+                                obs_resource["resource"]["referenceRange"][0]["low"]["unit"] = lab_vals[k][7]
+                                obs_resource["resource"]["referenceRange"][0]["low"]["system"] = "http://unitsofmeasure.org"
+                                obs_resource["resource"]["referenceRange"][0]["low"]["code"] = lab_vals[k][7]
+
                         if lab_vals[k][11] is not None:
                             obs_resource["resource"]["referenceRange"][0]["high"] = {
-                                                                                    "value" : lab_vals[k][11],
-                                                                                    "unit" : lab_vals[k][7],
-                                                                                    "system" : "http://unitsofmeasure.org",
-                                                                                    "code" : lab_vals[k][7]
-                                                                                   }
+                                                                                    "value" : lab_vals[k][11]
+                                                                                    }
+                            if lab_vals[k][7] != None:
+                                obs_resource["resource"]["referenceRange"][0]["high"]["unit"] = lab_vals[k][7]
+                                obs_resource["resource"]["referenceRange"][0]["high"]["system"] = "http://unitsofmeasure.org"
+                                obs_resource["resource"]["referenceRange"][0]["high"]["code"] = lab_vals[k][7]
+
                     obs_resource["resource"]["identifier"].append({
                                                                     "system": "https://cnics.cirg.washington.edu/lab/site-record-id/" + pat_id_list[i][0].lower(),
                                                                     "value": str(lab_vals[k][4].decode("utf-8"))
