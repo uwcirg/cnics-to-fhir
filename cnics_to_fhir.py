@@ -108,6 +108,15 @@ select distinct SessionId
 from ProAltered
 where PatientId = '""" + pat_id + """'
 """
+    elif obj_type == 5:
+#        print("select * from LabAltered where PatientId = '" + pat_id + "' order by LabId")
+        return """
+select *
+from LabAltered
+where PatientId = '""" + pat_id + """'
+and (Historical <> 'Yes' or Historical is NULL)
+and length(TestName) > 0
+"""
 
 def pro_sql_gen(obj_type, session_id):
     if obj_type == 5:
@@ -148,8 +157,11 @@ pro_cursor = pro_cnxn.cursor()
 fhir_store_path = SETTINGS['Options']['FhirUrl'].strip('"')
 # Set a maximum number of resources to return in FHIR queries
 # Note this is a temporary hack, paginating results should be implemented instead
-fhir_max_count = "20000"
+fhir_max_count = "50000"
 pat_id_list = []
+
+# Which types of resources should we include in this ETL run, read from settings file
+resource_list = SETTINGS['Options']['ResourceList'].strip('"').split(",")
 
 # Field mapping dicts
 dx_to_category = {
@@ -195,6 +207,9 @@ with open(pat_id_fn) as pat_id_file:
 
 log_it("==================================================================")
 log_it("Run Date/Time: " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+log_it("FHIR URL: " + SETTINGS['Options']['FhirUrl'].strip('"'))
+log_it("Resource List: " + SETTINGS['Options']['ResourceList'].strip('"'))
+log_it("Site List: " + SETTINGS['Options']['SiteList'].strip('"'))
 log_it("Patient Count: " + str(len(pat_id_lines)))
 
 for i in range(0, len(pat_id_lines)):
@@ -230,6 +245,9 @@ total_dx_upd = 0
 total_med_del = 0
 total_med_ins = 0
 total_med_upd = 0
+total_lab_del = 0
+total_lab_ins = 0
+total_lab_upd = 0
 
 # Collect current patients in FHIR store for the site to look for any that need to be deleted
 response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + SETTINGS['Options']['SiteList'].strip('"').strip("'").lower() + "|&_format=json&_count=" + fhir_max_count)
@@ -274,6 +292,9 @@ for i in range(0, len(pat_id_list)):
 
     cursor.execute(sql_gen(4, pat_id, None, None))
     sess_vals = cursor.fetchall()
+
+    cursor.execute(sql_gen(5, pat_id, None, None))
+    lab_vals = cursor.fetchall()
 
     # See if patient resource already exists, get ID if yes
     response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json&_count=" + fhir_max_count)
@@ -478,221 +499,421 @@ for i in range(0, len(pat_id_list)):
         if hapi_pat_id is None:
             hapi_pat_id = resource["entry"][0]["response"]["location"].split("/")[1]
         
-        # Collect current condition resources for the patient
-        response = requests.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
-        response.raise_for_status()
-        reply = response.json()
-        if int(LOG_LEVEL) > 8:
-            print("=====")
-            print(reply)
-        
-        if "entry" in reply:
-            cond_entry_actions = [None] * len(reply["entry"])
+        # If selected, collect current condition resources for the patient
+        if "conditions" in resource_list:
+            response = requests.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
+            response.raise_for_status()
+            reply = response.json()
+            if int(LOG_LEVEL) > 8:
+                print("=====")
+                print(reply)
             
-            # Delete any existing condition resources with no matching current diagnosis
-            for l in range(0, len(reply["entry"])):
-                cond = reply["entry"][l]
-                for k in range(0, len(dx_vals)):
-                    if "identifier" in cond["resource"].keys():
-                        if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
-                            cond_entry_actions[l] = "update"
-                            break
-                        else:
-                            cond_entry_actions[l] = "delete"
-                        
-            for ind in range(0, len(cond_entry_actions)):
-                if cond_entry_actions[ind] == "delete":
-                    response = requests.delete(fhir_store_path + "/Condition/" + reply["entry"][ind]["resource"]["id"])
-                    response.raise_for_status()
-                    del_reply = response.json()
-                    total_dx_del = total_dx_del + 1
-                    if int(LOG_LEVEL) > 8:
-                        print("=====")
-                        print(del_reply)
-        else:
-            cond_entry_actions = []
-        
-        # Insert any new diagnoses without existing condition resource or update, if existing
-        for k in range(0, len(dx_vals)):
-            final_dx_bundle = {
-                               "resourceType": "Bundle",
-                               "type": "transaction",
-                               "entry": []
-                              }
-            if dx_vals[k][3] != int(pat_id) and dx_vals[k][7].strip() != '':
-                continue
-            else:
-                api_call = "POST"
-                if "entry" in reply:
-                    for cond in reply["entry"]:
+            if "entry" in reply:
+                cond_entry_actions = [None] * len(reply["entry"])
+                
+                # Delete any existing condition resources with no matching current diagnosis
+                for l in range(0, len(reply["entry"])):
+                    cond = reply["entry"][l]
+                    for k in range(0, len(dx_vals)):
                         if "identifier" in cond["resource"].keys():
                             if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
+                                cond_entry_actions[l] = "update"
+                                break
+                            else:
+                                cond_entry_actions[l] = "delete"
+                            
+                for ind in range(0, len(cond_entry_actions)):
+                    if cond_entry_actions[ind] == "delete":
+                        response = requests.delete(fhir_store_path + "/Condition/" + reply["entry"][ind]["resource"]["id"])
+                        response.raise_for_status()
+                        del_reply = response.json()
+                        total_dx_del = total_dx_del + 1
+                        if int(LOG_LEVEL) > 8:
+                            print("=====")
+                            print(del_reply)
+            else:
+                cond_entry_actions = []
+            
+            # Insert any new diagnoses without existing condition resource or update, if existing
+            for k in range(0, len(dx_vals)):
+                final_dx_bundle = {
+                                   "resourceType": "Bundle",
+                                   "type": "transaction",
+                                   "entry": []
+                                  }
+                if dx_vals[k][3] != int(pat_id) and dx_vals[k][7].strip() != '':
+                    continue
+                else:
+                    api_call = "POST"
+                    if "entry" in reply:
+                        for cond in reply["entry"]:
+                            if "identifier" in cond["resource"].keys():
+                                if str(dx_vals[k][4].decode("utf-8")) == cond["resource"]["identifier"][0]["value"]:
+                                    api_call = "PUT"
+                                    break
+    
+                    # Populate the bones of a condition resource
+                    cond_resource = {
+                                     "resource": {
+                                                  "resourceType": "Condition",
+                                                  "meta": { "profile": [ "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition" ] },
+                                                  "verificationStatus": {
+                                                                         "coding": [ {
+                                                                                      "system": "http://terminology.hl7.org/CodeSystem/condition-ver-status"
+                                                                                     } ]
+                                                                        },
+                                                  "category": [ {
+                                                                 "coding": [ {
+                                                                              "system": "http://terminology.hl7.org/CodeSystem/condition-category"
+                                                                             } ]
+                                                                } ],
+                                                  "code": {
+                                                           "coding": [ { } ]
+                                                          },
+                                                  "subject": { "reference": "Patient/" + hapi_pat_id },
+                                                  "identifier": []
+                                                 },
+                                     "request": {
+                                                 "url": "Condition"
+                                                }
+                                    }
+    
+                    # Fill in the Condition resource template and send to HAPI
+                    if api_call == "PUT":
+                        cond_resource["resource"]["id"] = cond["resource"]["id"]
+                        total_dx_upd = total_dx_upd + 1
+                    else:
+                        total_dx_ins = total_dx_ins + 1
+                    
+                    if dx_vals[k][5] is not None:
+                        cond_resource["resource"]["recordedDate"] = dx_vals[k][5].strftime("%Y-%m-%d")
+                    cond_resource["resource"]["verificationStatus"]["coding"][0]["code"] = dx_to_verification_status[dx_vals[k][6]]
+                    cond_resource["resource"]["category"][0]["coding"][0]["code"] = dx_to_category[dx_vals[k][6]]
+                    cond_resource["resource"]["category"][0]["coding"][0]["display"] = category_code_to_display[dx_to_category[dx_vals[k][6]]]
+                    cond_resource["resource"]["code"]["coding"][0]["system"] = dx_to_coding_system(dx_vals[k][7])
+                    cond_resource["resource"]["code"]["coding"][0]["code"] = dx_to_coding_code(dx_vals[k][7])
+                    cond_resource["resource"]["code"]["coding"][0]["display"] = dx_to_coding_display(dx_vals[k][7])
+                    cond_resource["resource"]["code"]["text"] = dx_vals[k][7]
+                    cond_resource["resource"]["identifier"].append({
+                                                                    "system": "https://cnics.cirg.washington.edu/diagnosis/site-record-id/" + pat_id_list[i][0].lower(),
+                                                                    "value": str(dx_vals[k][4].decode("utf-8"))
+                                                                   })
+                    cond_resource["request"]["method"] = api_call
+    
+                    final_dx_bundle["entry"].append(cond_resource)
+            
+                    if int(LOG_LEVEL) > 8:
+                        print(orjson.dumps(final_dx_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                            
+                    headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+                    if api_call == "PUT":
+                        response = requests.put(fhir_store_path + "/Condition/" + cond["resource"]["id"], headers = headers, json = final_dx_bundle["entry"][0]["resource"])
+                    else:
+                        response = requests.post(fhir_store_path, headers = headers, json = final_dx_bundle)
+                    response.raise_for_status()
+                    resource = response.json()
+                    if int(LOG_LEVEL) > 8:
+                        print(resource)
+
+        # If selected, collect current MedicationRequest resources for the patient
+        if "medicationrequests" in resource_list:
+            response = requests.get(fhir_store_path + "/MedicationRequest?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
+            response.raise_for_status()
+            reply = response.json()
+            if int(LOG_LEVEL) > 8:
+                print("=====")
+                print(reply)
+            
+            if "entry" in reply:
+                med_entry_actions = [None] * len(reply["entry"])
+                
+                # Delete any existing MedicationRequest resources with no matching current medication
+                for l in range(0, len(reply["entry"])):
+                    med = reply["entry"][l]
+                    for k in range(0, len(med_vals)):
+                        if str(med_vals[k][4].decode("utf-8")) == med["resource"]["identifier"][0]["value"]:
+                            med_entry_actions[l] = "update"
+                            break
+                        else:
+                            med_entry_actions[l] = "delete"
+                            
+                for ind in range(0, len(med_entry_actions)):
+                    if med_entry_actions[ind] == "delete":
+                        response = requests.delete(fhir_store_path + "/MedicationRequest/" + reply["entry"][ind]["resource"]["id"])
+                        response.raise_for_status()
+                        del_reply = response.json()
+                        total_med_del = total_med_del + 1
+                        if int(LOG_LEVEL) > 8:
+                            print("=====")
+                            print(del_reply)
+            else:
+                med_entry_actions = []
+            
+            # Insert any new medications without existing MedicationRequest resource or update, if existing
+            for k in range(0, len(med_vals)):
+                final_med_bundle = {
+                                   "resourceType": "Bundle",
+                                   "type": "transaction",
+                                   "entry": []
+                                  }
+                if med_vals[k][3] != int(pat_id) and med_vals[k][5].strip() != '':
+                    continue
+                else:
+                    api_call = "POST"
+                    if "entry" in reply:
+                        for med in reply["entry"]:
+                            if str(med_vals[k][4].decode("utf-8")) == med["resource"]["identifier"][0]["value"]:
                                 api_call = "PUT"
                                 break
-
-                # Populate the bones of a condition resource
-                cond_resource = {
-                                 "resource": {
-                                              "resourceType": "Condition",
-                                              "meta": { "profile": [ "http://hl7.org/fhir/us/core/StructureDefinition/us-core-condition" ] },
-                                              "verificationStatus": {
-                                                                     "coding": [ {
-                                                                                  "system": "http://terminology.hl7.org/CodeSystem/condition-ver-status"
-                                                                                 } ]
-                                                                    },
-                                              "category": [ {
-                                                             "coding": [ {
-                                                                          "system": "http://terminology.hl7.org/CodeSystem/condition-category"
-                                                                         } ]
-                                                            } ],
-                                              "code": {
-                                                       "coding": [ { } ]
-                                                      },
-                                              "subject": { "reference": "Patient/" + hapi_pat_id },
-                                              "identifier": []
-                                             },
-                                 "request": {
-                                             "url": "Condition"
-                                            }
-                                }
-
-                # Fill in the Condition resource template and send to HAPI
-                if api_call == "PUT":
-                    cond_resource["resource"]["id"] = cond["resource"]["id"]
-                    total_dx_upd = total_dx_upd + 1
-                else:
-                    total_dx_ins = total_dx_ins + 1
-                
-                if dx_vals[k][5] is not None:
-                    cond_resource["resource"]["recordedDate"] = dx_vals[k][5].strftime("%Y-%m-%d")
-                cond_resource["resource"]["verificationStatus"]["coding"][0]["code"] = dx_to_verification_status[dx_vals[k][6]]
-                cond_resource["resource"]["category"][0]["coding"][0]["code"] = dx_to_category[dx_vals[k][6]]
-                cond_resource["resource"]["category"][0]["coding"][0]["display"] = category_code_to_display[dx_to_category[dx_vals[k][6]]]
-                cond_resource["resource"]["code"]["coding"][0]["system"] = dx_to_coding_system(dx_vals[k][7])
-                cond_resource["resource"]["code"]["coding"][0]["code"] = dx_to_coding_code(dx_vals[k][7])
-                cond_resource["resource"]["code"]["coding"][0]["display"] = dx_to_coding_display(dx_vals[k][7])
-                cond_resource["resource"]["code"]["text"] = dx_vals[k][7]
-                cond_resource["resource"]["identifier"].append({
-                                                                "system": "https://cnics.cirg.washington.edu/diagnosis/site-record-id/" + pat_id_list[i][0].lower(),
-                                                                "value": str(dx_vals[k][4].decode("utf-8"))
-                                                               })
-                cond_resource["request"]["method"] = api_call
-
-                final_dx_bundle["entry"].append(cond_resource)
-        
-                if int(LOG_LEVEL) > 8:
-                    print(orjson.dumps(final_dx_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
-                        
-                headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
-                if api_call == "PUT":
-                    response = requests.put(fhir_store_path + "/Condition/" + cond["resource"]["id"], headers = headers, json = final_dx_bundle["entry"][0]["resource"])
-                else:
-                    response = requests.post(fhir_store_path, headers = headers, json = final_dx_bundle)
-                response.raise_for_status()
-                resource = response.json()
-                if int(LOG_LEVEL) > 8:
-                    print(resource)
-
-        # Collect current MedicationRequest resources for the patient
-        response = requests.get(fhir_store_path + "/MedicationRequest?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
-        response.raise_for_status()
-        reply = response.json()
-        if int(LOG_LEVEL) > 8:
-            print("=====")
-            print(reply)
-        
-        if "entry" in reply:
-            med_entry_actions = [None] * len(reply["entry"])
-            
-            # Delete any existing MedicationRequest resources with no matching current medication
-            for l in range(0, len(reply["entry"])):
-                med = reply["entry"][l]
-                for k in range(0, len(med_vals)):
-                    if str(med_vals[k][4].decode("utf-8")) == med["resource"]["identifier"][0]["value"]:
-                        med_entry_actions[l] = "update"
-                        break
+    
+                    # Populate the bones of a MedicationRequest resource
+                    med_resource = {
+                                     "resource": {
+                                                  "resourceType": "MedicationRequest",
+                                                  "meta": { "profile": [ "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest" ] },
+                                                  "intent": "order",
+                                                  "medicationCodeableConcept": {
+                                                                 "coding": [ {
+                                                                              "system": "https://cnics.cirg.washington.edu/medication-name"
+                                                                             } ]
+                                                                },
+                                                  "subject": { "reference": "Patient/" + hapi_pat_id },
+                                                  "identifier": []
+                                                 },
+                                     "request": {
+                                                 "url": "MedicationRequest"
+                                                }
+                                    }
+    
+                    # Fill in the MedicationRequest resource template and send to HAPI
+                    if api_call == "PUT":
+                        med_resource["resource"]["id"] = med["resource"]["id"]
+                        total_med_upd = total_med_upd + 1
                     else:
-                        med_entry_actions[l] = "delete"
-                        
-            for ind in range(0, len(med_entry_actions)):
-                if med_entry_actions[ind] == "delete":
-                    response = requests.delete(fhir_store_path + "/MedicationRequest/" + reply["entry"][ind]["resource"]["id"])
-                    response.raise_for_status()
-                    del_reply = response.json()
-                    total_med_del = total_med_del + 1
+                        total_med_ins = total_med_ins + 1
+                    
+                    med_resource["resource"]["status"] = med_to_status(med_vals[k][12], med_vals[k][13], med_vals[k][14])
+                    med_resource["resource"]["medicationCodeableConcept"]["coding"][0]["code"] = med_vals[k][5]
+                    med_resource["resource"]["medicationCodeableConcept"]["coding"][0]["display"] = med_vals[k][5]
+                    med_resource["resource"]["medicationCodeableConcept"]["text"] = med_vals[k][5]
+                    med_resource["resource"]["identifier"].append({
+                                                                    "system": "https://cnics.cirg.washington.edu/medication/site-record-id/" + pat_id_list[i][0].lower(),
+                                                                    "value": str(med_vals[k][4].decode("utf-8"))
+                                                                   })
+                    med_resource["request"]["method"] = api_call
+    
+                    final_med_bundle["entry"].append(med_resource)
+            
                     if int(LOG_LEVEL) > 8:
-                        print("=====")
-                        print(del_reply)
-        else:
-            med_entry_actions = []
-        
-        # Insert any new medications without existing MedicationRequest resource or update, if existing
-        for k in range(0, len(med_vals)):
-            final_med_bundle = {
-                               "resourceType": "Bundle",
-                               "type": "transaction",
-                               "entry": []
-                              }
-            if med_vals[k][3] != int(pat_id) and med_vals[k][7].strip() != '':
-                continue
-            else:
-                api_call = "POST"
-                if "entry" in reply:
-                    for med in reply["entry"]:
-                        if str(med_vals[k][4].decode("utf-8")) == med["resource"]["identifier"][0]["value"]:
-                            api_call = "PUT"
-                            break
+                        print(orjson.dumps(final_med_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                            
+                    headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+                    if api_call == "PUT":
+                        response = requests.put(fhir_store_path + "/MedicationRequest/" + med["resource"]["id"], headers = headers, json = final_med_bundle["entry"][0]["resource"])
+                    else:
+                        response = requests.post(fhir_store_path, headers = headers, json = final_med_bundle)
+                    response.raise_for_status()
+                    resource = response.json()
+                    if int(LOG_LEVEL) > 8:
+                        print(resource)
 
-                # Populate the bones of a MedicationRequest resource
-                med_resource = {
-                                 "resource": {
-                                              "resourceType": "MedicationRequest",
-                                              "meta": { "profile": [ "http://hl7.org/fhir/us/core/StructureDefinition/us-core-medicationrequest" ] },
-                                              "intent": "order",
-                                              "medicationCodeableConcept": {
-                                                             "coding": [ {
-                                                                          "system": "https://cnics.cirg.washington.edu/medication-name"
-                                                                         } ]
-                                                            },
-                                              "subject": { "reference": "Patient/" + hapi_pat_id },
-                                              "identifier": []
-                                             },
-                                 "request": {
-                                             "url": "MedicationRequest"
-                                            }
-                                }
-
-                # Fill in the MedicationRequest resource template and send to HAPI
-                if api_call == "PUT":
-                    med_resource["resource"]["id"] = med["resource"]["id"]
-                    total_med_upd = total_med_upd + 1
-                else:
-                    total_med_ins = total_med_ins + 1
+        # If selected, collect current observation resources for the patient
+        if "observations" in resource_list:
+            response = requests.get(fhir_store_path + "/Observation?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
+            response.raise_for_status()
+            reply = response.json()
+            if int(LOG_LEVEL) > 8:
+                print("=====")
+                print(reply)
+            
+            if "entry" in reply:
+                obs_entry_actions = [None] * len(reply["entry"])
                 
-                med_resource["resource"]["status"] = med_to_status(med_vals[k][12], med_vals[k][13], med_vals[k][14])
-                med_resource["resource"]["medicationCodeableConcept"]["coding"][0]["code"] = med_vals[k][5]
-                med_resource["resource"]["medicationCodeableConcept"]["coding"][0]["display"] = med_vals[k][5]
-                med_resource["resource"]["medicationCodeableConcept"]["text"] = med_vals[k][5]
-                med_resource["resource"]["identifier"].append({
-                                                                "system": "https://cnics.cirg.washington.edu/medication/site-record-id/" + pat_id_list[i][0].lower(),
-                                                                "value": str(med_vals[k][4].decode("utf-8"))
-                                                               })
-                med_resource["request"]["method"] = api_call
-
-                final_med_bundle["entry"].append(med_resource)
-        
-                if int(LOG_LEVEL) > 8:
-                    print(orjson.dumps(final_med_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
-                        
-                headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
-                if api_call == "PUT":
-                    response = requests.put(fhir_store_path + "/MedicationRequest/" + med["resource"]["id"], headers = headers, json = final_med_bundle["entry"][0]["resource"])
+                # Delete any existing observation resources with no matching current lab
+                for l in range(0, len(reply["entry"])):
+                    obs = reply["entry"][l]
+                    for k in range(0, len(lab_vals)):
+                        if "identifier" in obs["resource"].keys():
+                            if lab_vals[k][4] == obs["resource"]["identifier"][0]["value"]:
+                                obs_entry_actions[l] = "update"
+                                break
+                            else:
+                                obs_entry_actions[l] = "delete"
+                            
+                for ind in range(0, len(obs_entry_actions)):
+                    if obs_entry_actions[ind] == "delete":
+                        response = requests.delete(fhir_store_path + "/Observation/" + reply["entry"][ind]["resource"]["id"])
+                        response.raise_for_status()
+                        del_reply = response.json()
+                        total_lab_del = total_lab_del + 1
+                        if int(LOG_LEVEL) > 8:
+                            print("=====")
+                            print(del_reply)
+            else:
+                obs_entry_actions = []
+            
+            # Insert any new labs without existing observation resource or update, if existing
+            for k in range(0, len(lab_vals)):
+                final_lab_bundle = {
+                                    "resourceType": "Bundle",
+                                    "type": "transaction",
+                                    "entry": []
+                                   }
+                if lab_vals[k][3] != int(pat_id) and lab_vals[k][5].strip() != '':
+                    continue
                 else:
-                    response = requests.post(fhir_store_path, headers = headers, json = final_med_bundle)
-                response.raise_for_status()
-                resource = response.json()
-                if int(LOG_LEVEL) > 8:
-                    print(resource)
+                    api_call = "POST"
+                    if "entry" in reply:
+                        for obs in reply["entry"]:
+                            if "identifier" in obs["resource"].keys():
+                                if lab_vals[k][4] == obs["resource"]["identifier"][0]["value"]:
+                                    api_call = "PUT"
+                                    break
+    
+                    # Populate the bones of an observation resource
+                    obs_resource = {
+                                     "resource": {
+                                                  "resourceType": "Observation",
+                                                  "meta": { "profile": [ "http://hl7.org/fhir/us/core/StructureDefinition/us-core-observation-lab" ] },
+                                                  "status": "final",
+                                                  "category": [ {
+                                                                 "coding": [ {
+                                                                              "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                                                                              "code": "laboratory",
+                                                                              "display": "laboratory"
+                                                                             } ]
+                                                                 } ],
+                                                  "code": {
+                                                           "coding": [ { 
+                                                                        "system": "https://cnics.cirg.washington.edu/test-name"
+                                                                       } ]
+                                                          },
+                                                  "subject": { "reference": "Patient/" + hapi_pat_id },
+                                                  "identifier": []
+                                                 },
+                                     "request": {
+                                                 "url": "Observation"
+                                                }
+                                    }
+    
+                    # Fill in the Observation resource template and send to HAPI
+                    if api_call == "PUT":
+                        obs_resource["resource"]["id"] = obs["resource"]["id"]
+                        total_lab_upd = total_lab_upd + 1
+                    else:
+                        total_lab_ins = total_lab_ins + 1
+                    
+                    if lab_vals[k][9] is not None:
+                        obs_resource["resource"]["effectiveDateTime"] = lab_vals[k][9].strftime("%Y-%m-%d")
+                    obs_resource["resource"]["code"]["coding"][0]["code"] = lab_vals[k][5]
+                    obs_resource["resource"]["code"]["coding"][0]["display"] = lab_vals[k][5]
+                    obs_resource["resource"]["code"]["text"] = lab_vals[k][5]
+                    
+                    # Determine type of 'value[x]' to use based on the value of the lab result
+                    value_val = lab_vals[k][6]
+                    value_comparator = None
+                    value_val_high = None
+                    value_val_low = None
+                    integer_re = '([0]|[-+]?\s*[1-9][0-9]*)'
+                    decimal_re = '(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)'
+                    range_re = '([0]|[-+]?\s*[1-9][0-9]*)\s*-\s*([0]|[-+]?\s*[1-9][0-9]*)'
+                    comparator_re = '(<|<=|>=|>)'
+                    # if integer, use 'valueInteger'
+                    if re.search("^" + integer_re + "$", value_val) != None:
+                        value_type = "valueInteger"
+                    # if range, use 'valueRange' with 'high' and 'low' elements
+                    elif re.search("^" + range_re + "$", value_val) != None:
+                        value_type = "valueRange"
+                        value_val_high = re.search("^" + range_re + "$", value_val).groups()[1]
+                        value_val_low = re.search("^" + range_re + "$", value_val).groups()[0]
+                    # if decimal, use 'valueQuantity'
+                    elif re.search("^" + decimal_re + "$", value_val) != None:
+                        value_type = "valueQuantity"
+                    # if there's a comaprator prior to the decimal, use 'valueQuantity' and add in a 'valueComparator' element
+                    elif re.search("^" + comparator_re + decimal_re + "$", value_val) != None:
+                        value_type = "valueQuantity"
+                        value_comparator = re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[0]
+                        value_val = re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[1]
+                    else:
+                        value_type = "valueString"
+
+                    if value_type in ["valueRange", "valueQuantity"]:
+                        obs_resource["resource"][value_type] = {}
+                        if value_type == "valueRange":
+                            obs_resource["resource"][value_type]["low"] = {}
+                            obs_resource["resource"][value_type]["low"]["value"] = value_val_low
+                            obs_resource["resource"][value_type]["high"] = {}
+                            obs_resource["resource"][value_type]["high"]["value"] = value_val_high
+                        else:
+                            obs_resource["resource"][value_type]["value"] = value_val
+                        if value_comparator != None:
+                            obs_resource["resource"][value_type]["comparator"] = value_comparator
+                        if lab_vals[k][7] != None:
+                            if value_type == "valueRange":
+                                obs_resource["resource"][value_type]["low"]["unit"] = lab_vals[k][7]
+                                obs_resource["resource"][value_type]["low"]["system"] = "http://unitsofmeasure.org"
+                                obs_resource["resource"][value_type]["low"]["code"] = lab_vals[k][7]
+                                obs_resource["resource"][value_type]["high"]["unit"] = lab_vals[k][7]
+                                obs_resource["resource"][value_type]["high"]["system"] = "http://unitsofmeasure.org"
+                                obs_resource["resource"][value_type]["high"]["code"] = lab_vals[k][7]
+                            else :
+                                obs_resource["resource"][value_type]["unit"] = lab_vals[k][7]
+                                obs_resource["resource"][value_type]["system"] = "http://unitsofmeasure.org"
+                                obs_resource["resource"][value_type]["code"] = lab_vals[k][7]
+                        if lab_vals[k][10] != None or lab_vals[k][11] != None:
+                            if re.search("^" + decimal_re + "$", str(lab_vals[k][10])) != None or re.search("^" + decimal_re + "$", str(lab_vals[k][11])) != None:
+                                obs_resource["resource"]["referenceRange"] = [ {
+                                                                                "type" : {
+                                                                                          "coding" : [ {
+                                                                                                        "system" : "http://terminology.hl7.org/CodeSystem/referencerange-meaning",
+                                                                                                        "code" : "normal",
+                                                                                                        "display" : "Normal Range"
+                                                                                                       }
+                                                                                                     ],
+                                                                                          "text" : "Normal Range"
+                                                                                         }
+        
+                                                                               } ]
+                                if re.search("^" + decimal_re + "$", str(lab_vals[k][10])) != None:
+                                    obs_resource["resource"]["referenceRange"][0]["low"] = {
+                                                                                            "value" : lab_vals[k][10]
+                                                                                           }
+                                    if lab_vals[k][7] != None:
+                                        obs_resource["resource"]["referenceRange"][0]["low"]["unit"] = lab_vals[k][7]
+                                        obs_resource["resource"]["referenceRange"][0]["low"]["system"] = "http://unitsofmeasure.org"
+                                        obs_resource["resource"]["referenceRange"][0]["low"]["code"] = lab_vals[k][7]
+        
+                                if re.search("^" + decimal_re + "$", str(lab_vals[k][11])) != None:
+                                    obs_resource["resource"]["referenceRange"][0]["high"] = {
+                                                                                            "value" : lab_vals[k][11]
+                                                                                            }
+                                    if lab_vals[k][7] != None:
+                                        obs_resource["resource"]["referenceRange"][0]["high"]["unit"] = lab_vals[k][7]
+                                        obs_resource["resource"]["referenceRange"][0]["high"]["system"] = "http://unitsofmeasure.org"
+                                        obs_resource["resource"]["referenceRange"][0]["high"]["code"] = lab_vals[k][7]
+                    else:
+                        obs_resource["resource"][value_type] = value_val
+
+                    obs_resource["resource"]["identifier"].append({
+                                                                    "system": "https://cnics.cirg.washington.edu/lab/site-record-id/" + pat_id_list[i][0].lower(),
+                                                                    "value": lab_vals[k][4]
+                                                                  })
+                    obs_resource["request"]["method"] = api_call
+    
+                    final_lab_bundle["entry"].append(obs_resource)
+            
+                    if int(LOG_LEVEL) > 8:
+                        print(orjson.dumps(final_lab_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                            
+                    headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+                    if api_call == "PUT":
+                        response = requests.put(fhir_store_path + "/Observation/" + obs["resource"]["id"], headers = headers, json = final_lab_bundle["entry"][0]["resource"])
+                    else:
+                        response = requests.post(fhir_store_path, headers = headers, json = final_lab_bundle)
+                    response.raise_for_status()
+                    resource = response.json()
+                    if int(LOG_LEVEL) > 8:
+                        print(resource)
 
     else:
         # Multiple patient resources found, halt and catch fire!
@@ -711,6 +932,9 @@ log_it("Total Conditions Updated: " + str(total_dx_upd))
 log_it("Total Medications Deleted: " + str(total_med_del))
 log_it("Total Medications Inserted: " + str(total_med_ins))
 log_it("Total Medications Updated: " + str(total_med_upd))
+log_it("Total Observations Deleted: " + str(total_lab_del))
+log_it("Total Observations Inserted: " + str(total_lab_ins))
+log_it("Total Observations Updated: " + str(total_lab_upd))
 log_it("Total Run Time: " + str(bench_end - bench_start))
 
 LOG_FILE.close()
