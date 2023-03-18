@@ -5,7 +5,7 @@ Created on Thu Jul 22 13:01:49 2021
 @author: James Sibley
 """
 
-import configparser, csv, datetime, mysql.connector, orjson, re, requests
+import configparser, csv, datetime, mysql.connector, orjson, re, requests, time
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
 def dx_to_coding_code(dx_text):
@@ -66,6 +66,33 @@ def notify(post_data):
         if response is not None:
             log_it('Notify completed, status code (' + str(response.status_code) + ')...')
 
+def pro_sql_gen(obj_type, session_id):
+    if obj_type == 5:
+#        print("select * from ProAltered where PatientId = '" + pat_id + "' order by ProId")
+        return """
+select distinct p.PatientID, p.MRN
+from Patients p
+join Sessions s on p.PatientID = s.PatientID
+where s.SessionID = '""" + session_id + """'
+"""
+
+def sql_connect(cnxn_type = 1):
+    if cnxn_type == 1:
+        cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
+                               password = SECRETS['Database']['DataPw'].strip('"'),
+                               host = SETTINGS['Database']['DataHost'].strip('"'),
+                               port = SETTINGS['Database']['DataPort'].strip('"'),
+                               database = SETTINGS['Database']['DataDb'].strip('"'))
+    else:
+        # "Reveal" database connection to pull MRN identifiers from PRO database
+        cnxn = mysql.connector.connect(user = SETTINGS['Database']['ProUser'].strip('"'),
+                               password = SECRETS['Database']['ProPw'].strip('"'),
+                               host = SETTINGS['Database']['ProHost'].strip('"'),
+                               port = SETTINGS['Database']['ProPort'].strip('"'),
+                               database = SETTINGS['Database']['ProDb'].strip('"'))
+
+    return cnxn
+
 def sql_gen(obj_type, pat_id, site, site_pat_id):
     if obj_type == 0:
 #        print("select * from Patient where Site = '" + site + "' and SitePatientId = '" + site_pat_id + "'")
@@ -118,15 +145,29 @@ and (Historical <> 'Yes' or Historical is NULL)
 and length(TestName) > 0
 """
 
-def pro_sql_gen(obj_type, session_id):
-    if obj_type == 5:
-#        print("select * from ProAltered where PatientId = '" + pat_id + "' order by ProId")
-        return """
-select distinct p.PatientID, p.MRN
-from Patients p
-join Sessions s on p.PatientID = s.PatientID
-where s.SessionID = '""" + session_id + """'
-"""
+def sql_run(query, cnxn_type):
+    retry_flag = True
+    retry_count = 0
+    cnxn = sql_connect(cnxn_type)
+    cursor = cnxn.cursor()
+    while retry_flag and retry_count < 5:
+        try:
+            cursor.execute(query)
+            retry_flag = False
+
+        except Exception as e:
+            if int(LOG_LEVEL) > 8:
+                print("=====")
+                print (e)
+                print ("Retrying in 5 sec...")
+            retry_count = retry_count + 1
+            cursor.close()
+            cnxn.close()
+            time.sleep(5)
+            cnxn = sql_connect(cnxn_type)
+            cursor = cnxn.cursor()
+
+    return cursor.fetchall()
 
 SETTINGS = configparser.ConfigParser()
 SETTINGS.read('./settings.ini')
@@ -141,18 +182,18 @@ with open(SETTINGS['Files']['StandardDiagnoses'].strip('"')) as f:
 with open(SETTINGS['Files']['StandardMedications'].strip('"')) as f:
     CNICS_STANDARD_MEDICATIONS = [i.replace('"', '') for i in f.read().splitlines()]
 
-cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
-                               password = SECRETS['Database']['DataPw'].strip('"'),
-                               host = SETTINGS['Database']['DataHost'].strip('"'),
-                               port = SETTINGS['Database']['DataPort'].strip('"'),
-                               database = SETTINGS['Database']['DataDb'].strip('"'))
-# "Reveal" database connection to pull MRN identifiers from PRO database
-pro_cnxn = mysql.connector.connect(user = SETTINGS['Database']['ProUser'].strip('"'),
-                                   password = SECRETS['Database']['ProPw'].strip('"'),
-                                   host = SETTINGS['Database']['ProHost'].strip('"'),
-                                   port = SETTINGS['Database']['ProPort'].strip('"'),
-                                   database = SETTINGS['Database']['ProDb'].strip('"'))
-pro_cursor = pro_cnxn.cursor()
+# cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
+#                                password = SECRETS['Database']['DataPw'].strip('"'),
+#                                host = SETTINGS['Database']['DataHost'].strip('"'),
+#                                port = SETTINGS['Database']['DataPort'].strip('"'),
+#                                database = SETTINGS['Database']['DataDb'].strip('"'))
+# # "Reveal" database connection to pull MRN identifiers from PRO database
+# pro_cnxn = mysql.connector.connect(user = SETTINGS['Database']['ProUser'].strip('"'),
+#                                    password = SECRETS['Database']['ProPw'].strip('"'),
+#                                    host = SETTINGS['Database']['ProHost'].strip('"'),
+#                                    port = SETTINGS['Database']['ProPort'].strip('"'),
+#                                    database = SETTINGS['Database']['ProDb'].strip('"'))
+# pro_cursor = pro_cnxn.cursor()
 
 fhir_store_path = SETTINGS['Options']['FhirUrl'].strip('"')
 # Set a maximum number of resources to return in FHIR queries
@@ -185,16 +226,24 @@ dx_to_verification_status = {
                              "Verified clinical diagnosis": "confirmed"
                             }
 # Build list of Site:SitePatientId pairs to query 
-cursor = cnxn.cursor()
-cursor.execute("""
+# cursor = cnxn.cursor()
+# cursor.execute("""
+# select *
+# from Patient p
+# join DemographicAltered d on p.PatientId = d.PatientId
+# where Site in (""" + SETTINGS['Options']['SiteList'].strip('"') + """)
+# #order by rand()
+# limit """ + SETTINGS['Options']['PatCnt'].strip('"') + """
+# """)
+# pat_vals = cursor.fetchall()
+pat_vals = sql_run("""
 select *
 from Patient p
 join DemographicAltered d on p.PatientId = d.PatientId
 where Site in (""" + SETTINGS['Options']['SiteList'].strip('"') + """)
 #order by rand()
 limit """ + SETTINGS['Options']['PatCnt'].strip('"') + """
-""")
-pat_vals = cursor.fetchall()
+""", 1)
 
 pat_id_fn = SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir_pid_list.txt"
 pat_id_file = open(pat_id_fn, "w", encoding="utf-8")
@@ -216,7 +265,7 @@ for i in range(0, len(pat_id_lines)):
     pat_id_list.append(tuple([str(pat_id_lines[i].split(":")[0]), pat_id_lines[i].split(":")[1]]))
 
 # Read in MRNs from an external file to use as additional identifiers for patient resources
-# This is currently very specific for the "UW" site, will need modifications to accommodate other sites
+# This is currently only for the "UW" site, will need modifications to accommodate other sites
 site_id_mrns = {}
 if SETTINGS['Options']['SiteList'].strip('"').strip("'") == 'UW':
     cnt = 0
@@ -277,24 +326,18 @@ for i in range(0, len(pat_id_list)):
                         "entry": []
                        }
     
-    cursor.execute(sql_gen(0, None, pat_id_list[i][0], pat_id_list[i][1]))
-    pat_vals = cursor.fetchall()
+    pat_vals = sql_run(sql_gen(0, None, pat_id_list[i][0], pat_id_list[i][1]), 1)
     pat_id = str(pat_vals[0][0])
     
-    cursor.execute(sql_gen(1, pat_id, None, None))
-    dx_vals = cursor.fetchall()
+    dx_vals = sql_run(sql_gen(1, pat_id, None, None), 1)
     
-    cursor.execute(sql_gen(2, pat_id, None, None))
-    demo_vals = cursor.fetchall()
+    demo_vals = sql_run(sql_gen(2, pat_id, None, None), 1)
 
-    cursor.execute(sql_gen(3, pat_id, None, None))
-    med_vals = cursor.fetchall()
+    med_vals = sql_run(sql_gen(3, pat_id, None, None), 1)
 
-    cursor.execute(sql_gen(4, pat_id, None, None))
-    sess_vals = cursor.fetchall()
+    sess_vals = sql_run(sql_gen(4, pat_id, None, None), 1)
 
-    cursor.execute(sql_gen(5, pat_id, None, None))
-    lab_vals = cursor.fetchall()
+    lab_vals = sql_run(sql_gen(5, pat_id, None, None), 1)
 
     # See if patient resource already exists, get ID if yes
     response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json&_count=" + fhir_max_count)
@@ -366,8 +409,7 @@ for i in range(0, len(pat_id_list)):
             uniq_pro_pat_ids = []
             uniq_pro_mrns = []
             for j in range(0, len(sess_vals)):
-                pro_cursor.execute(pro_sql_gen(5, sess_vals[j][0]))
-                id_vals = pro_cursor.fetchall()
+                id_vals = sql_run(pro_sql_gen(5, sess_vals[j][0]), 2)
                 for k in range(0, len(id_vals)):
                     if id_vals[k][0] is not None:
                         if id_vals[k][0] not in uniq_pro_pat_ids:
@@ -919,7 +961,7 @@ for i in range(0, len(pat_id_list)):
         # Multiple patient resources found, halt and catch fire!
         log_it("ERROR: Multiple patient resources (" + str(reply["total"]) + ") found with the same CNICS ID: "  + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + ".  This should never happen, aborting.")
 
-cnxn.close()
+# cnxn.close()
 
 bench_end = datetime.datetime.now()
 
