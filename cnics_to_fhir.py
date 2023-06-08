@@ -76,7 +76,7 @@ join Sessions s on p.PatientID = s.PatientID
 where s.SessionID = '""" + session_id + """'
 """
 
-def sql_connect(cnxn_type = 1):
+def sql_connect(cnxn_type = 1, site = ''):
     if cnxn_type == 1:
         cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
                                password = SECRETS['Database']['DataPw'].strip('"'),
@@ -85,11 +85,11 @@ def sql_connect(cnxn_type = 1):
                                database = SETTINGS['Database']['DataDb'].strip('"'))
     else:
         # "Reveal" database connection to pull MRN identifiers from PRO database
-        cnxn = mysql.connector.connect(user = SETTINGS['Database']['ProUser'].strip('"'),
-                               password = SECRETS['Database']['ProPw'].strip('"'),
+        cnxn = mysql.connector.connect(user = SETTINGS['Database']['ProUserPrefix'].strip('"') + site,
+                               password = SECRETS['Database']['ProPw_' + site].strip('"'),
                                host = SETTINGS['Database']['ProHost'].strip('"'),
                                port = SETTINGS['Database']['ProPort'].strip('"'),
-                               database = SETTINGS['Database']['ProDb'].strip('"'))
+                               database = SETTINGS['Database']['ProDbPrefix'].strip('"') + site)
 
     return cnxn
 
@@ -145,10 +145,10 @@ and (Historical <> 'Yes' or Historical is NULL)
 and length(TestName) > 0
 and """ + observations_filter
 
-def sql_run(query, cnxn_type):
+def sql_run(query, cnxn_type, site):
     retry_flag = True
     retry_count = 0
-    cnxn = sql_connect(cnxn_type)
+    cnxn = sql_connect(cnxn_type, site)
     cursor = cnxn.cursor()
     while retry_flag and retry_count < 5:
         try:
@@ -164,7 +164,7 @@ def sql_run(query, cnxn_type):
             cursor.close()
             cnxn.close()
             time.sleep(5)
-            cnxn = sql_connect(cnxn_type)
+            cnxn = sql_connect(cnxn_type, site)
             cursor = cnxn.cursor()
 
     return cursor.fetchall()
@@ -252,7 +252,7 @@ for site in site_list:
     where Site = '""" + site + """'
     #order by rand()
     limit """ + SETTINGS['Options']['PatCnt'].strip('"') + """
-    """, 1)
+    """, 1, site)
     
     pat_id_fn = SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir_pid_list.txt"
     pat_id_file = open(pat_id_fn, "w", encoding="utf-8")
@@ -335,18 +335,18 @@ for site in site_list:
                             "entry": []
                            }
         
-        pat_vals = sql_run(sql_gen(0, None, pat_id_list[i][0], pat_id_list[i][1]), 1)
+        pat_vals = sql_run(sql_gen(0, None, pat_id_list[i][0], pat_id_list[i][1]), 1, site)
         pat_id = str(pat_vals[0][0])
         
-        dx_vals = sql_run(sql_gen(1, pat_id, None, None), 1)
+        dx_vals = sql_run(sql_gen(1, pat_id, None, None), 1, site)
         
-        demo_vals = sql_run(sql_gen(2, pat_id, None, None), 1)
+        demo_vals = sql_run(sql_gen(2, pat_id, None, None), 1, site)
     
-        med_vals = sql_run(sql_gen(3, pat_id, None, None), 1)
+        med_vals = sql_run(sql_gen(3, pat_id, None, None), 1, site)
     
-        sess_vals = sql_run(sql_gen(4, pat_id, None, None), 1)
+        sess_vals = sql_run(sql_gen(4, pat_id, None, None), 1, site)
     
-        lab_vals = sql_run(sql_gen(5, pat_id, None, None), 1)
+        lab_vals = sql_run(sql_gen(5, pat_id, None, None), 1, site)
     
         # See if patient resource already exists, get ID if yes
         response = requests.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json&_count=" + fhir_max_count)
@@ -418,7 +418,7 @@ for site in site_list:
                 uniq_pro_pat_ids = []
                 uniq_pro_mrns = []
                 for j in range(0, len(sess_vals)):
-                    id_vals = sql_run(pro_sql_gen(5, sess_vals[j][0]), 2)
+                    id_vals = sql_run(pro_sql_gen(5, sess_vals[j][0]), 2, site)
                     for k in range(0, len(id_vals)):
                         if id_vals[k][0] is not None:
                             if id_vals[k][0] not in uniq_pro_pat_ids:
