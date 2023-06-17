@@ -79,17 +79,24 @@ where s.SessionID = '""" + session_id + """'
 def sql_connect(cnxn_type = 1, site = ''):
     if cnxn_type == 1:
         cnxn = mysql.connector.connect(user = SETTINGS['Database']['DataUser'].strip('"'),
-                               password = SECRETS['Database']['DataPw'].strip('"'),
-                               host = SETTINGS['Database']['DataHost'].strip('"'),
-                               port = SETTINGS['Database']['DataPort'].strip('"'),
-                               database = SETTINGS['Database']['DataDb'].strip('"'))
+                                       password = SECRETS['Database']['DataPw'].strip('"'),
+                                       host = SETTINGS['Database']['DataHost'].strip('"'),
+                                       port = SETTINGS['Database']['DataPort'].strip('"'),
+                                       database = SETTINGS['Database']['DataDb'].strip('"'))
     else:
         # "Reveal" database connection to pull MRN identifiers from PRO database
-        cnxn = mysql.connector.connect(user = SETTINGS['Database']['ProUserPrefix'].strip('"') + site,
-                               password = SECRETS['Database']['ProPw_' + site].strip('"'),
-                               host = SETTINGS['Database']['ProHost'].strip('"'),
-                               port = SETTINGS['Database']['ProPort'].strip('"'),
-                               database = SETTINGS['Database']['ProDbPrefix'].strip('"') + site)
+        if SETTINGS['Database']['ProUserPrefix'].strip('"') == "cnics_pro":
+            cnxn = mysql.connector.connect(user = SETTINGS['Database']['ProUserPrefix'].strip('"'),
+                                           password = SECRETS['Database']['ProPw_' + site].strip('"'),
+                                           host = SETTINGS['Database']['ProHost'].strip('"'),
+                                           port = SETTINGS['Database']['ProPort'].strip('"'),
+                                           database = SETTINGS['Database']['ProDbPrefix'].strip('"'))
+        else:
+            cnxn = mysql.connector.connect(user = SETTINGS['Database']['ProUserPrefix'].strip('"') + site,
+                                           password = SECRETS['Database']['ProPw_' + site].strip('"'),
+                                           host = SETTINGS['Database']['ProHost'].strip('"'),
+                                           port = SETTINGS['Database']['ProPort'].strip('"'),
+                                           database = SETTINGS['Database']['ProDbPrefix'].strip('"') + site)
 
     return cnxn
 
