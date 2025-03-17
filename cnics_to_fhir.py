@@ -53,7 +53,7 @@ def med_to_status(start_date, end_date, end_type):
 
 def notify(post_data):
     try:
-        response = session.post('https://jumpstart2.cirg.washington.edu/cgi-bin/notify-sms.cgi', data = post_data, verify = False)
+        response = requests.post('https://jumpstart2.cirg.washington.edu/cgi-bin/notify-sms.cgi', data = post_data, verify = False)
     except ConnectionError as e:
         log_it('ERR: Notify failed - ConnectionError (' + str(e) + ')...')
     except HTTPError as e:
@@ -196,13 +196,35 @@ JOB_LIST = configparser.ConfigParser()
 JOB_LIST.read('./job-config.ini')
 
 LOG_FILE = open(SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir.log", "a", encoding="utf-8")
+LOG_LEVEL = 1
 
 with open(SETTINGS['Files']['StandardDiagnoses'].strip('"')) as f:
     CNICS_STANDARD_DIAGNOSES = [i.replace('"', '') for i in f.read().splitlines()]
 with open(SETTINGS['Files']['StandardMedications'].strip('"')) as f:
     CNICS_STANDARD_MEDICATIONS = [i.replace('"', '') for i in f.read().splitlines()]
 
-fhir_store_path = SETTINGS['Options']['FhirUrl'].strip('"')
+fhir_store = SETTINGS['Options']['FhirStore'].strip('"')
+if fhir_store == "hapi":
+    fhir_store_path = SETTINGS['Options']['HapiFhirUrl'].strip('"')
+    fhir_query_headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+elif fhir_store == "aidbox":
+    fhir_store_path = SETTINGS['Options']['AidboxFhirUrl'].strip('"')
+    fhir_auth_token = None
+    fhir_auth_response = None
+    fhir_auth_headers = {'Content-Type': 'application/json'}
+    fhir_auth_params = {'grant_type': 'client_credentials', 'client_id': 'client-cnics-crud', 'client_secret': SECRETS['FHIR']['AidboxAuthPw'].strip('"')}
+    fhir_auth_response = requests.post(SETTINGS['Options']['AidboxAuthUrl'].strip('"'), headers = fhir_auth_headers, params = fhir_auth_params)
+    if fhir_auth_response is not None:
+        reply = fhir_auth_response.json()
+        if int(LOG_LEVEL) > 8:
+            print("=====")
+            print(reply)
+
+        fhir_query_headers = {'Authorization': reply['access_token'], 'Content-Type': 'application/json'}
+    else:
+        print("Unable to query FHIR server for auth token.")
+        quit()
+
 # Set a maximum number of resources to return in FHIR queries
 # Note this is a temporary hack, paginating results should be implemented instead
 fhir_max_count = "50000"
@@ -312,7 +334,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
         total_lab_upd = 0
         
         # Collect current patients in FHIR store for the site to look for any that need to be deleted
-        response = session.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + site + "|&_format=json&_count=" + fhir_max_count)
+        response = session.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + site + "|&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
         response.raise_for_status()
         reply = response.json()
         if int(LOG_LEVEL) > 8:
@@ -324,7 +346,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
             for l in range(0, len(reply["entry"])):
                 pat = reply["entry"][l]
                 if pat["resource"]["identifier"][0]["value"] not in [x[1] for x in pat_id_list]:
-                    response = session.delete(fhir_store_path + "/Patient/" + pat["resource"]["id"] + "?_cascade=delete")
+                    response = session.delete(fhir_store_path + "/Patient/" + pat["resource"]["id"] + "?_cascade=delete", headers = fhir_query_headers)
                     response.raise_for_status()
                     del_reply = response.json()
                     total_pat_del = total_pat_del + 1
@@ -353,7 +375,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
             lab_vals = sql_run(sql_gen(5, pat_id, None, None), 1, site, db_name)
         
             # See if patient resource already exists, get ID if yes
-            response = session.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json&_count=" + fhir_max_count)
+            response = session.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
             response.raise_for_status()
             reply = response.json()
             if int(LOG_LEVEL) > 8:
@@ -541,11 +563,11 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                 if int(LOG_LEVEL) > 8:
                     print(orjson.dumps(final_pat_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                         
-                headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+#                headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                 if hapi_pat_id is not None:
-                    response = session.put(fhir_store_path + "/Patient/" + hapi_pat_id, headers = headers, json = final_pat_bundle["entry"][0]["resource"])
+                    response = session.put(fhir_store_path + "/Patient/" + hapi_pat_id, headers = fhir_query_headers, json = final_pat_bundle["entry"][0]["resource"])
                 else:
-                    response = session.post(fhir_store_path, headers = headers, json = final_pat_bundle)
+                    response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_pat_bundle)
                 response.raise_for_status()
                 resource = response.json()
                 if int(LOG_LEVEL) > 8:
@@ -556,7 +578,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                 
                 # If selected, collect current condition resources for the patient
                 if "conditions" in resource_list:
-                    response = session.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
+                    response = session.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
                     response.raise_for_status()
                     reply = response.json()
                     if int(LOG_LEVEL) > 8:
@@ -579,7 +601,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                     
                         for ind in range(0, len(cond_entry_actions)):
                             if cond_entry_actions[ind] == "delete":
-                                response = session.delete(fhir_store_path + "/Condition/" + reply["entry"][ind]["resource"]["id"])
+                                response = session.delete(fhir_store_path + "/Condition/" + reply["entry"][ind]["resource"]["id"], headers = fhir_query_headers)
                                 response.raise_for_status()
                                 del_reply = response.json()
                                 total_dx_del = total_dx_del + 1
@@ -660,11 +682,11 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                             if int(LOG_LEVEL) > 8:
                                 print(orjson.dumps(final_dx_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
-                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+#                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                             if api_call == "PUT":
-                                response = session.put(fhir_store_path + "/Condition/" + cond["resource"]["id"], headers = headers, json = final_dx_bundle["entry"][0]["resource"])
+                                response = session.put(fhir_store_path + "/Condition/" + cond["resource"]["id"], headers = fhir_query_headers, json = final_dx_bundle["entry"][0]["resource"])
                             else:
-                                response = session.post(fhir_store_path, headers = headers, json = final_dx_bundle)
+                                response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_dx_bundle)
                             response.raise_for_status()
                             resource = response.json()
                             if int(LOG_LEVEL) > 8:
@@ -672,7 +694,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
         
                 # If selected, collect current MedicationRequest resources for the patient
                 if "medicationrequests" in resource_list:
-                    response = session.get(fhir_store_path + "/MedicationRequest?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
+                    response = session.get(fhir_store_path + "/MedicationRequest?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
                     response.raise_for_status()
                     reply = response.json()
                     if int(LOG_LEVEL) > 8:
@@ -694,7 +716,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                     
                         for ind in range(0, len(med_entry_actions)):
                             if med_entry_actions[ind] == "delete":
-                                response = session.delete(fhir_store_path + "/MedicationRequest/" + reply["entry"][ind]["resource"]["id"])
+                                response = session.delete(fhir_store_path + "/MedicationRequest/" + reply["entry"][ind]["resource"]["id"], headers = fhir_query_headers)
                                 response.raise_for_status()
                                 del_reply = response.json()
                                 total_med_del = total_med_del + 1
@@ -762,11 +784,11 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                             if int(LOG_LEVEL) > 8:
                                 print(orjson.dumps(final_med_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
-                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+#                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                             if api_call == "PUT":
-                                response = session.put(fhir_store_path + "/MedicationRequest/" + med["resource"]["id"], headers = headers, json = final_med_bundle["entry"][0]["resource"])
+                                response = session.put(fhir_store_path + "/MedicationRequest/" + med["resource"]["id"], headers = fhir_query_headers, json = final_med_bundle["entry"][0]["resource"])
                             else:
-                                response = session.post(fhir_store_path, headers = headers, json = final_med_bundle)
+                                response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_med_bundle)
                             response.raise_for_status()
                             resource = response.json()
                             if int(LOG_LEVEL) > 8:
@@ -774,7 +796,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
         
                 # If selected, collect current observation resources for the patient
                 if "observations" in resource_list:
-                    response = session.get(fhir_store_path + "/Observation?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count)
+                    response = session.get(fhir_store_path + "/Observation?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
                     response.raise_for_status()
                     reply = response.json()
                     if int(LOG_LEVEL) > 8:
@@ -797,7 +819,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                     
                         for ind in range(0, len(obs_entry_actions)):
                             if obs_entry_actions[ind] == "delete":
-                                response = session.delete(fhir_store_path + "/Observation/" + reply["entry"][ind]["resource"]["id"])
+                                response = session.delete(fhir_store_path + "/Observation/" + reply["entry"][ind]["resource"]["id"], headers = fhir_query_headers)
                                 response.raise_for_status()
                                 del_reply = response.json()
                                 total_lab_del = total_lab_del + 1
@@ -960,11 +982,11 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                             if int(LOG_LEVEL) > 8:
                                 print(orjson.dumps(final_lab_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
-                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
+#                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                             if api_call == "PUT":
-                                response = session.put(fhir_store_path + "/Observation/" + obs["resource"]["id"], headers = headers, json = final_lab_bundle["entry"][0]["resource"])
+                                response = session.put(fhir_store_path + "/Observation/" + obs["resource"]["id"], headers = fhir_query_headers, json = final_lab_bundle["entry"][0]["resource"])
                             else:
-                                response = session.post(fhir_store_path, headers = headers, json = final_lab_bundle)
+                                response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_lab_bundle)
                             response.raise_for_status()
                             resource = response.json()
                             if int(LOG_LEVEL) > 8:
