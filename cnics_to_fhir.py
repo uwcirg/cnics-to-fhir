@@ -290,7 +290,10 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
         
         log_it("==================================================================")
         log_it("Run Date/Time: " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        log_it("FHIR URL: " + SETTINGS['Options']['FhirUrl'].strip('"'))
+        if fhir_store == "hapi":
+            log_it("FHIR URL: " + SETTINGS['Options']['HapiFhirUrl'].strip('"'))
+        elif fhir_store == "aidbox":
+            log_it("FHIR URL: " + SETTINGS['Options']['AidboxFhirUrl'].strip('"'))
         log_it("Resource List: " + ",".join(resource_list))
         log_it("Site: " + site)
         log_it("Database Name: " + db_name)
