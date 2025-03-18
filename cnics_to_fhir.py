@@ -923,6 +923,10 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                     obs_resource["resource"][value_type]["high"]["value"] = value_val_high
                                 else:
                                     obs_resource["resource"][value_type]["value"] = value_val
+                                    # set some defaults here in case there is no unit value supplied, if there is it will be overwritten below
+                                    obs_resource["resource"][value_type]["unit"] = '%'
+                                    obs_resource["resource"][value_type]["system"] = "http://unitsofmeasure.org"
+                                    obs_resource["resource"][value_type]["code"] = '%'
                                 if value_comparator != None:
                                     obs_resource["resource"][value_type]["comparator"] = value_comparator
                                 if lab_vals[k][7] != None:
