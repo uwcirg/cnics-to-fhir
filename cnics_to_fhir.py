@@ -5,7 +5,7 @@ Created on Thu Jul 22 13:01:49 2021
 @author: James Sibley
 """
 
-import configparser, csv, datetime, mysql.connector, orjson, re, requests, time
+import configparser, csv, datetime, logging, mysql.connector, orjson, re, requests, time
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
 def dx_to_coding_code(dx_text):
@@ -38,33 +38,11 @@ def dx_to_coding_system(dx_text):
     else:
         return "http://snomed.info/sct"
 
-def log_it(message, email_notify = False):
-    LOG_FILE.write(message + "\n")
-    if email_notify:
-        notify({'mail_date': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S %z"),
-                'mail_subj': "CNICS to FHIR Notification",
-                'mail_body': message + "\n"})
-
 def med_to_status(start_date, end_date, end_type):
     if start_date is not None:
         if end_date is not None:
             return "stopped"
         return "active"
-
-def notify(post_data):
-    try:
-        response = requests.post('https://jumpstart2.cirg.washington.edu/cgi-bin/notify-sms.cgi', data = post_data, verify = False)
-    except ConnectionError as e:
-        log_it('ERR: Notify failed - ConnectionError (' + str(e) + ')...')
-    except HTTPError as e:
-        log_it('ERR: Notify failed - HTTPError (' + str(e) + ')...')
-    except Timeout as e:
-        log_it('ERR: Notify failed - Timeout (' + str(e) + ')...')
-    except Exception as e:
-        log_it('ERR: Notify failed (' + str(e) + ')...')
-    else:
-        if response is not None:
-            log_it('Notify completed, status code (' + str(response.status_code) + ')...')
 
 def pro_sql_gen(obj_type, session_id):
     if obj_type == 5:
@@ -75,6 +53,18 @@ from Patients p
 join Sessions s on p.PatientID = s.PatientID
 where s.SessionID = '""" + session_id + """'
 """
+
+def setup_logger(name, log_file, level=logging.INFO):
+    """To setup as many loggers as you want"""
+
+    handler = logging.FileHandler(log_file)        
+    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)-8s %(message)s'))
+
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    logger.addHandler(handler)
+
+    return logger
 
 def sql_connect(cnxn_type = 1, site = '', db_name = ''):
     if cnxn_type == 1:
@@ -175,10 +165,8 @@ def sql_run(query, cnxn_type, site, db_name):
             retry_flag = False
 
         except Exception as e:
-            if int(LOG_LEVEL) > 8:
-                print("=====")
-                print (e)
-                print ("Retrying in 5 sec...")
+            debug_logger.debug(e)
+            debug_logger.debug("Retrying in 5 sec...")
             retry_count = retry_count + 1
             cursor.close()
             cnxn.close()
@@ -195,8 +183,8 @@ SECRETS.read('./secrets.ini')
 JOB_LIST = configparser.ConfigParser()
 JOB_LIST.read('./job-config.ini')
 
-LOG_FILE = open(SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir.log", "a", encoding="utf-8")
-LOG_LEVEL = 1
+info_logger = setup_logger('info_logger', SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir.log")
+debug_logger = setup_logger('debug_logger', SETTINGS['Logging']['LogPath'].strip('"') + "cnics_to_fhir_verbose_debug.log", logging.DEBUG)
 
 with open(SETTINGS['Files']['StandardDiagnoses'].strip('"')) as f:
     CNICS_STANDARD_DIAGNOSES = [i.replace('"', '') for i in f.read().splitlines()]
@@ -216,13 +204,11 @@ elif fhir_store == "aidbox":
     fhir_auth_response = requests.post(SETTINGS['Options']['AidboxAuthUrl'].strip('"'), headers = fhir_auth_headers, params = fhir_auth_params)
     if fhir_auth_response is not None:
         reply = fhir_auth_response.json()
-        if int(LOG_LEVEL) > 8:
-            print("=====")
-            print(reply)
+        debug_logger.debug(reply)
 
         fhir_query_headers = {'Authorization': reply['access_token'], 'Content-Type': 'application/json'}
     else:
-        print("Unable to query FHIR server for auth token.")
+        info_logger.info("Unable to query FHIR server for auth token.")
         quit()
 
 # Set a maximum number of resources to return in FHIR queries
@@ -264,9 +250,8 @@ job_cnt = 1
 while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
     job_line = JOB_LIST['JobList']['Job_' + str(job_cnt)].strip('"').split(":")
     site_list = job_line[0].split(",")
-    LOG_LEVEL = job_line[1]
-    db_name = job_line[2]
-    resource_list = job_line[3].split(",")
+    db_name = job_line[1]
+    resource_list = job_line[2].split(",")
 
     for site in site_list:
         pat_id_list = []
@@ -288,16 +273,13 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
         with open(pat_id_fn) as pat_id_file:
             pat_id_lines = [line.rstrip() for line in pat_id_file]
         
-        log_it("==================================================================")
-        log_it("Run Date/Time: " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-        if fhir_store == "hapi":
-            log_it("FHIR URL: " + SETTINGS['Options']['HapiFhirUrl'].strip('"'))
-        elif fhir_store == "aidbox":
-            log_it("FHIR URL: " + SETTINGS['Options']['AidboxFhirUrl'].strip('"'))
-        log_it("Resource List: " + ",".join(resource_list))
-        log_it("Site: " + site)
-        log_it("Database Name: " + db_name)
-        log_it("Patient Count: " + str(len(pat_id_lines)))
+        info_logger.info("==================================================================")
+        info_logger.info("Run Date/Time: " + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        info_logger.info(fhir_store_path)
+        info_logger.info("Resource List: " + ",".join(resource_list))
+        info_logger.info("Site: " + site)
+        info_logger.info("Database Name: " + db_name)
+        info_logger.info("Patient Count: " + str(len(pat_id_lines)))
         
         for i in range(0, len(pat_id_lines)):
             pat_id_list.append(tuple([str(pat_id_lines[i].split(":")[0]), pat_id_lines[i].split(":")[1]]))
@@ -340,9 +322,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
         response = session.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + site + "|&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
         response.raise_for_status()
         reply = response.json()
-        if int(LOG_LEVEL) > 8:
-            print("=====")
-            print(reply)
+        debug_logger.debug(reply)
         
         if "entry" in reply:
             # Delete any existing patients with no matching current entry
@@ -353,9 +333,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                     response.raise_for_status()
                     del_reply = response.json()
                     total_pat_del = total_pat_del + 1
-                    if int(LOG_LEVEL) > 8:
-                        print("=====")
-                        print(del_reply)
+                    debug_logger.debug(del_reply)
         
         for i in range(0, len(pat_id_list)):
             final_pat_bundle = {
@@ -381,9 +359,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
             response = session.get(fhir_store_path + "/Patient?identifier=https://cnics.cirg.washington.edu/site-patient-id/" + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + "&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
             response.raise_for_status()
             reply = response.json()
-            if int(LOG_LEVEL) > 8:
-                print("=====")
-                print(reply)
+            debug_logger.debug(reply)
         
             if reply["total"] < 2:
                 # Insert or update
@@ -563,8 +539,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
             
                 final_pat_bundle["entry"].append(pat_resource)
         
-                if int(LOG_LEVEL) > 8:
-                    print(orjson.dumps(final_pat_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                debug_logger.debug(orjson.dumps(final_pat_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                         
 #                headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                 if hapi_pat_id is not None:
@@ -573,8 +548,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                     response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_pat_bundle)
                 response.raise_for_status()
                 resource = response.json()
-                if int(LOG_LEVEL) > 8:
-                    print(resource)
+                debug_logger.debug(resource)
         
                 if hapi_pat_id is None:
                     hapi_pat_id = resource["entry"][0]["response"]["location"].split("/")[1]
@@ -584,9 +558,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                     response = session.get(fhir_store_path + "/Condition?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
                     response.raise_for_status()
                     reply = response.json()
-                    if int(LOG_LEVEL) > 8:
-                        print("=====")
-                        print(reply)
+                    debug_logger.debug(reply)
                     
                     if "entry" in reply:
                         cond_entry_actions = [None] * len(reply["entry"])
@@ -608,9 +580,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 response.raise_for_status()
                                 del_reply = response.json()
                                 total_dx_del = total_dx_del + 1
-                                if int(LOG_LEVEL) > 8:
-                                    print("=====")
-                                    print(del_reply)
+                                debug_logger.debug(del_reply)
                     else:
                         cond_entry_actions = []
                     
@@ -682,8 +652,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
             
                             final_dx_bundle["entry"].append(cond_resource)
                     
-                            if int(LOG_LEVEL) > 8:
-                                print(orjson.dumps(final_dx_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                            debug_logger.debug(orjson.dumps(final_dx_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
 #                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                             if api_call == "PUT":
@@ -692,17 +661,14 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_dx_bundle)
                             response.raise_for_status()
                             resource = response.json()
-                            if int(LOG_LEVEL) > 8:
-                                print(resource)
+                            debug_logger.debug(resource)
         
                 # If selected, collect current MedicationRequest resources for the patient
                 if "medicationrequests" in resource_list:
                     response = session.get(fhir_store_path + "/MedicationRequest?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
                     response.raise_for_status()
                     reply = response.json()
-                    if int(LOG_LEVEL) > 8:
-                        print("=====")
-                        print(reply)
+                    debug_logger.debug(reply)
                     
                     if "entry" in reply:
                         med_entry_actions = [None] * len(reply["entry"])
@@ -723,9 +689,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 response.raise_for_status()
                                 del_reply = response.json()
                                 total_med_del = total_med_del + 1
-                                if int(LOG_LEVEL) > 8:
-                                    print("=====")
-                                    print(del_reply)
+                                debug_logger.debug(del_reply)
                     else:
                         med_entry_actions = []
                     
@@ -784,8 +748,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
             
                             final_med_bundle["entry"].append(med_resource)
                     
-                            if int(LOG_LEVEL) > 8:
-                                print(orjson.dumps(final_med_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                            debug_logger.debug(orjson.dumps(final_med_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
 #                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                             if api_call == "PUT":
@@ -794,17 +757,14 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_med_bundle)
                             response.raise_for_status()
                             resource = response.json()
-                            if int(LOG_LEVEL) > 8:
-                                print(resource)
+                            debug_logger.debug(resource)
         
                 # If selected, collect current observation resources for the patient
                 if "observations" in resource_list:
                     response = session.get(fhir_store_path + "/Observation?subject=" + "Patient/" + hapi_pat_id + "&_format=json&_count=" + fhir_max_count, headers = fhir_query_headers)
                     response.raise_for_status()
                     reply = response.json()
-                    if int(LOG_LEVEL) > 8:
-                        print("=====")
-                        print(reply)
+                    debug_logger.debug(reply)
                     
                     if "entry" in reply:
                         obs_entry_actions = [None] * len(reply["entry"])
@@ -826,9 +786,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 response.raise_for_status()
                                 del_reply = response.json()
                                 total_lab_del = total_lab_del + 1
-                                if int(LOG_LEVEL) > 8:
-                                    print("=====")
-                                    print(del_reply)
+                                debug_logger.debug(del_reply)
                     else:
                         obs_entry_actions = []
                     
@@ -986,8 +944,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
             
                             final_lab_bundle["entry"].append(obs_resource)
                     
-                            if int(LOG_LEVEL) > 8:
-                                print(orjson.dumps(final_lab_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                            debug_logger.debug(orjson.dumps(final_lab_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
 #                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                             if api_call == "PUT":
@@ -996,31 +953,28 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_lab_bundle)
                             response.raise_for_status()
                             resource = response.json()
-                            if int(LOG_LEVEL) > 8:
-                                print(resource)
+                            debug_logger.debug(resource)
         
             else:
                 # Multiple patient resources found, halt and catch fire!
-                log_it("ERROR: Multiple patient resources (" + str(reply["total"]) + ") found with the same CNICS ID: "  + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + ".  This should never happen, aborting.")
+                info_logger.error("ERROR: Multiple patient resources (" + str(reply["total"]) + ") found with the same CNICS ID: "  + pat_id_list[i][0].lower() + "|" + str(pat_vals[0][1].decode("utf-8")) + ".  This should never happen, aborting.")
         
         # cnxn.close()
         
         bench_end = datetime.datetime.now()
         
-        log_it("Total Patients Deleted: " + str(total_pat_del))
-        log_it("Total Patients Inserted: " + str(total_pat_ins))
-        log_it("Total Patients Updated: " + str(total_pat_upd))
-        log_it("Total Conditions Deleted: " + str(total_dx_del))
-        log_it("Total Conditions Inserted: " + str(total_dx_ins))
-        log_it("Total Conditions Updated: " + str(total_dx_upd))
-        log_it("Total Medications Deleted: " + str(total_med_del))
-        log_it("Total Medications Inserted: " + str(total_med_ins))
-        log_it("Total Medications Updated: " + str(total_med_upd))
-        log_it("Total Observations Deleted: " + str(total_lab_del))
-        log_it("Total Observations Inserted: " + str(total_lab_ins))
-        log_it("Total Observations Updated: " + str(total_lab_upd))
-        log_it("Total Run Time: " + str(bench_end - bench_start))
+        info_logger.info("Total Patients Deleted: " + str(total_pat_del))
+        info_logger.info("Total Patients Inserted: " + str(total_pat_ins))
+        info_logger.info("Total Patients Updated: " + str(total_pat_upd))
+        info_logger.info("Total Conditions Deleted: " + str(total_dx_del))
+        info_logger.info("Total Conditions Inserted: " + str(total_dx_ins))
+        info_logger.info("Total Conditions Updated: " + str(total_dx_upd))
+        info_logger.info("Total Medications Deleted: " + str(total_med_del))
+        info_logger.info("Total Medications Inserted: " + str(total_med_ins))
+        info_logger.info("Total Medications Updated: " + str(total_med_upd))
+        info_logger.info("Total Observations Deleted: " + str(total_lab_del))
+        info_logger.info("Total Observations Inserted: " + str(total_lab_ins))
+        info_logger.info("Total Observations Updated: " + str(total_lab_upd))
+        info_logger.info("Total Run Time: " + str(bench_end - bench_start))
 
     job_cnt += 1
-
-LOG_FILE.close()
