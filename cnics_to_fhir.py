@@ -535,7 +535,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                 debug_logger.debug(resource)
         
                 if hapi_pat_id is None:
-                    hapi_pat_id = resource["entry"][0]["response"]["location"].split("/")[1]
+                    hapi_pat_id = resource['id']
                 
                 # If selected, collect current condition resources for the patient
                 if "conditions" in resource_list:
