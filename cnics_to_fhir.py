@@ -206,7 +206,7 @@ elif fhir_store == "aidbox":
         reply = fhir_auth_response.json()
         debug_logger.debug(reply)
 
-        fhir_query_headers = {'Authorization': reply['access_token'], 'Content-Type': 'application/json'}
+        fhir_query_headers = {'Authorization': 'Bearer ' + reply['access_token'], 'Content-Type': 'application/json'}
     else:
         info_logger.info("Unable to query FHIR server for auth token.")
         quit()
@@ -302,7 +302,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 site_id_mrns[str(row[2])]['umrn'] = str(row[1])
                     cnt += 1
         
-        # Query for patient data, xform to FHIR bundle, upload to HAPI as insert (if new) or update (if existing)
+        # Query for patient data, xform to FHIR resource, upload to HAPI as insert (if new) or update (if existing)
         bench_start = datetime.datetime.now()
         
         total_pat_del = 0
@@ -336,12 +336,6 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                     debug_logger.debug(del_reply)
         
         for i in range(0, len(pat_id_list)):
-            final_pat_bundle = {
-                                "resourceType": "Bundle",
-                                "type": "transaction",
-                                "entry": []
-                               }
-            
             pat_vals = sql_run(sql_gen(0, None, pat_id_list[i][0], pat_id_list[i][1]), 1, site, db_name)
             pat_id = str(pat_vals[0][0])
             
@@ -536,16 +530,14 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 pat_resource["resource"]["gender"] = demo_vals[j][6].lower()
             
                         break
-            
-                final_pat_bundle["entry"].append(pat_resource)
-        
-                debug_logger.debug(orjson.dumps(final_pat_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+
+                debug_logger.debug(orjson.dumps(pat_resource, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                         
 #                headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                 if hapi_pat_id is not None:
-                    response = session.put(fhir_store_path + "/Patient/" + hapi_pat_id, headers = fhir_query_headers, json = final_pat_bundle["entry"][0]["resource"])
+                    response = session.put(fhir_store_path + "/Patient/" + hapi_pat_id, headers = fhir_query_headers, json = pat_resource)
                 else:
-                    response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_pat_bundle)
+                    response = session.post(fhir_store_path + "/Patient", headers = fhir_query_headers, json = pat_resource)
                 response.raise_for_status()
                 resource = response.json()
                 debug_logger.debug(resource)
@@ -586,11 +578,6 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                     
                     # Insert any new diagnoses without existing condition resource or update, if existing
                     for k in range(0, len(dx_vals)):
-                        final_dx_bundle = {
-                                           "resourceType": "Bundle",
-                                           "type": "transaction",
-                                           "entry": []
-                                          }
                         if dx_vals[k][3] != int(pat_id) and dx_vals[k][7].strip() != '':
                             continue
                         else:
@@ -649,16 +636,14 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                                                             "value": str(dx_vals[k][4].decode("utf-8"))
                                                                            })
                             cond_resource["request"]["method"] = api_call
-            
-                            final_dx_bundle["entry"].append(cond_resource)
-                    
-                            debug_logger.debug(orjson.dumps(final_dx_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+
+                            debug_logger.debug(orjson.dumps(cond_resource, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
 #                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                             if api_call == "PUT":
-                                response = session.put(fhir_store_path + "/Condition/" + cond["resource"]["id"], headers = fhir_query_headers, json = final_dx_bundle["entry"][0]["resource"])
+                                response = session.put(fhir_store_path + "/Condition/" + cond["resource"]["id"], headers = fhir_query_headers, json = cond_resource)
                             else:
-                                response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_dx_bundle)
+                                response = session.post(fhir_store_path + "/Condition", headers = fhir_query_headers, json = cond_resource)
                             response.raise_for_status()
                             resource = response.json()
                             debug_logger.debug(resource)
@@ -695,11 +680,6 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                     
                     # Insert any new medications without existing MedicationRequest resource or update, if existing
                     for k in range(0, len(med_vals)):
-                        final_med_bundle = {
-                                           "resourceType": "Bundle",
-                                           "type": "transaction",
-                                           "entry": []
-                                          }
                         if med_vals[k][3] != int(pat_id) and med_vals[k][5].strip() != '':
                             continue
                         else:
@@ -745,16 +725,14 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                                                             "value": str(med_vals[k][4].decode("utf-8"))
                                                                            })
                             med_resource["request"]["method"] = api_call
-            
-                            final_med_bundle["entry"].append(med_resource)
-                    
-                            debug_logger.debug(orjson.dumps(final_med_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                                
+                            debug_logger.debug(orjson.dumps(med_resource, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
 #                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                             if api_call == "PUT":
-                                response = session.put(fhir_store_path + "/MedicationRequest/" + med["resource"]["id"], headers = fhir_query_headers, json = final_med_bundle["entry"][0]["resource"])
+                                response = session.put(fhir_store_path + "/MedicationRequest/" + med["resource"]["id"], headers = fhir_query_headers, json = med_resource)
                             else:
-                                response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_med_bundle)
+                                response = session.post(fhir_store_path + "/MedicationRequest", headers = fhir_query_headers, json = med_resource)
                             response.raise_for_status()
                             resource = response.json()
                             debug_logger.debug(resource)
@@ -792,11 +770,6 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                     
                     # Insert any new labs without existing observation resource or update, if existing
                     for k in range(0, len(lab_vals)):
-                        final_lab_bundle = {
-                                            "resourceType": "Bundle",
-                                            "type": "transaction",
-                                            "entry": []
-                                           }
                         if lab_vals[k][3] != int(pat_id) and lab_vals[k][5].strip() != '':
                             continue
                         else:
@@ -941,16 +914,14 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                                                             "value": lab_vals[k][4]
                                                                           })
                             obs_resource["request"]["method"] = api_call
-            
-                            final_lab_bundle["entry"].append(obs_resource)
-                    
-                            debug_logger.debug(orjson.dumps(final_lab_bundle, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
+                                
+                            debug_logger.debug(orjson.dumps(obs_resource, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
 #                            headers = {"Content-Type": "application/fhir+json;charset=utf-8"}
                             if api_call == "PUT":
-                                response = session.put(fhir_store_path + "/Observation/" + obs["resource"]["id"], headers = fhir_query_headers, json = final_lab_bundle["entry"][0]["resource"])
+                                response = session.put(fhir_store_path + "/Observation/" + obs["resource"]["id"], headers = fhir_query_headers, json = obs_resource)
                             else:
-                                response = session.post(fhir_store_path, headers = fhir_query_headers, json = final_lab_bundle)
+                                response = session.post(fhir_store_path + "/Observation", headers = fhir_query_headers, json = obs_resource)
                             response.raise_for_status()
                             resource = response.json()
                             debug_logger.debug(resource)
