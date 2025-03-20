@@ -376,10 +376,8 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                 
                 if hapi_pat_id is not None:
                     pat_resource["id"] = hapi_pat_id
-                    pat_resource["request"]["method"] = "PUT"
                     total_pat_upd = total_pat_upd + 1
                 else:
-                    pat_resource["request"]["method"] = "POST"
                     total_pat_ins = total_pat_ins + 1
                     
                 # Fill in identifiers, if any
@@ -624,7 +622,6 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                                                             "system": "https://cnics.cirg.washington.edu/diagnosis/site-record-id/" + pat_id_list[i][0].lower(),
                                                                             "value": str(dx_vals[k][4].decode("utf-8"))
                                                                            })
-                            cond_resource["request"]["method"] = api_call
 
                             debug_logger.debug(orjson.dumps(cond_resource, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
@@ -708,7 +705,6 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                                                             "system": "https://cnics.cirg.washington.edu/medication/site-record-id/" + pat_id_list[i][0].lower(),
                                                                             "value": str(med_vals[k][4].decode("utf-8"))
                                                                            })
-                            med_resource["request"]["method"] = api_call
                                 
                             debug_logger.debug(orjson.dumps(med_resource, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
@@ -892,7 +888,6 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                                                   "system": "https://cnics.cirg.washington.edu/lab/site-record-id/" + pat_id_list[i][0].lower(),
                                                                   "value": lab_vals[k][4]
                                                               })
-                            obs_resource["request"]["method"] = api_call
                                 
                             debug_logger.debug(orjson.dumps(obs_resource, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
                                     
