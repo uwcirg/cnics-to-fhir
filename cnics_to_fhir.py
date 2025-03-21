@@ -698,7 +698,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 total_med_ins = total_med_ins + 1
                             
                             med_resource["status"] = med_to_status(med_vals[k][12], med_vals[k][13], med_vals[k][14])
-                            med_resource["medicationCodeableConcept"]["coding"][0]["code"] = med_vals[k][5]
+                            med_resource["medicationCodeableConcept"]["coding"][0]["code"] = med_vals[k][5].replace("  ", " ")
                             med_resource["medicationCodeableConcept"]["coding"][0]["display"] = med_vals[k][5]
                             med_resource["medicationCodeableConcept"]["text"] = med_vals[k][5]
                             med_resource["identifier"].append({
