@@ -807,6 +807,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                             # if integer, use 'valueInteger'
                             if re.search("^" + integer_re + "$", value_val) != None:
                                 value_type = "valueInteger"
+                                value_val = int(value_val)
                             # if range, use 'valueRange' with 'high' and 'low' elements
                             elif re.search("^" + range_re + "$", value_val) != None:
                                 value_type = "valueRange"
@@ -815,6 +816,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                             # if decimal, use 'valueQuantity'
                             elif re.search("^" + decimal_re + "$", value_val) != None:
                                 value_type = "valueQuantity"
+                                value_val = float(value_val)
                             # if there's a comaprator prior to the decimal, use 'valueQuantity' and add in a 'valueComparator' element
                             elif re.search("^" + comparator_re + decimal_re + "$", value_val) != None:
                                 value_type = "valueQuantity"
@@ -831,7 +833,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                     obs_resource[value_type]["high"] = {}
                                     obs_resource[value_type]["high"]["value"] = float(value_val_high)
                                 else:
-                                    obs_resource[value_type]["value"] = float(value_val)
+                                    obs_resource[value_type]["value"] = value_val
                                     # set some defaults here in case there is no unit value supplied, if there is it will be overwritten below
                                     obs_resource[value_type]["unit"] = '%'
                                     obs_resource[value_type]["system"] = "http://unitsofmeasure.org"
@@ -882,7 +884,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                                 obs_resource["referenceRange"][0]["high"]["system"] = "http://unitsofmeasure.org"
                                                 obs_resource["referenceRange"][0]["high"]["code"] = lab_vals[k][7]
                             else:
-                                obs_resource[value_type] = float(value_val)
+                                obs_resource[value_type] = value_val
         
                             obs_resource["identifier"].append({
                                                                   "system": "https://cnics.cirg.washington.edu/lab/site-record-id/" + pat_id_list[i][0].lower(),
