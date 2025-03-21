@@ -43,6 +43,7 @@ def med_to_status(start_date, end_date, end_type):
         if end_date is not None:
             return "stopped"
         return "active"
+    return "unknown"
 
 def pro_sql_gen(obj_type, session_id):
     if obj_type == 5:
