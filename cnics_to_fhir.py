@@ -820,8 +820,9 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                             # if there's a comaprator prior to the decimal, use 'valueQuantity' and add in a 'valueComparator' element
                             elif re.search("^" + comparator_re + decimal_re + "$", value_val) != None:
                                 value_type = "valueQuantity"
+                                value_val = float(value_val)
                                 value_comparator = re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[0]
-                                value_val = re.search("^" + comparator_re + decimal_re + "$", float(value_val)).groups()[1]
+                                value_val = re.search("^" + comparator_re + decimal_re + "$", value_val).groups()[1]
                             else:
                                 value_type = "valueString"
         
