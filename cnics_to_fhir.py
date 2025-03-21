@@ -827,11 +827,11 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                 obs_resource[value_type] = {}
                                 if value_type == "valueRange":
                                     obs_resource[value_type]["low"] = {}
-                                    obs_resource[value_type]["low"]["value"] = value_val_low
+                                    obs_resource[value_type]["low"]["value"] = float(value_val_low)
                                     obs_resource[value_type]["high"] = {}
-                                    obs_resource[value_type]["high"]["value"] = value_val_high
+                                    obs_resource[value_type]["high"]["value"] = float(value_val_high)
                                 else:
-                                    obs_resource[value_type]["value"] = value_val
+                                    obs_resource[value_type]["value"] = float(value_val)
                                     # set some defaults here in case there is no unit value supplied, if there is it will be overwritten below
                                     obs_resource[value_type]["unit"] = '%'
                                     obs_resource[value_type]["system"] = "http://unitsofmeasure.org"
@@ -866,7 +866,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                                                                                        } ]
                                         if re.search("^" + decimal_re + "$", str(lab_vals[k][10])) != None:
                                             obs_resource["referenceRange"][0]["low"] = {
-                                                                                                    "value" : lab_vals[k][10]
+                                                                                                    "value" : float(lab_vals[k][10])
                                                                                                    }
                                             if lab_vals[k][7] != None:
                                                 obs_resource["referenceRange"][0]["low"]["unit"] = lab_vals[k][7]
@@ -875,14 +875,14 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                 
                                         if re.search("^" + decimal_re + "$", str(lab_vals[k][11])) != None:
                                             obs_resource["referenceRange"][0]["high"] = {
-                                                                                                    "value" : lab_vals[k][11]
+                                                                                                    "value" : float(lab_vals[k][11])
                                                                                                     }
                                             if lab_vals[k][7] != None:
                                                 obs_resource["referenceRange"][0]["high"]["unit"] = lab_vals[k][7]
                                                 obs_resource["referenceRange"][0]["high"]["system"] = "http://unitsofmeasure.org"
                                                 obs_resource["referenceRange"][0]["high"]["code"] = lab_vals[k][7]
                             else:
-                                obs_resource[value_type] = value_val
+                                obs_resource[value_type] = float(value_val)
         
                             obs_resource["identifier"].append({
                                                                   "system": "https://cnics.cirg.washington.edu/lab/site-record-id/" + pat_id_list[i][0].lower(),
