@@ -421,7 +421,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
                     for uniq_id in uniq_pro_pat_ids:
                         pat_resource["identifier"].append({
                                                                        "system": "https://cnics-pro.cirg.washington.edu/pro-patient-id/" + pat_id_list[i][0].lower(),
-                                                                       "value": uniq_id
+                                                                       "value": str(uniq_id)
                                                                       })
                     for uniq_id in uniq_pro_mrns:
                         pat_resource["identifier"].append({
