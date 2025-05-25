@@ -201,7 +201,7 @@ elif fhir_store == "aidbox":
     fhir_auth_token = None
     fhir_auth_response = None
     fhir_auth_headers = {'Content-Type': 'application/json'}
-    fhir_auth_params = {'grant_type': 'client_credentials', 'client_id': 'client-cnics-crud', 'client_secret': SECRETS['FHIR']['AidboxAuthPw'].strip('"')}
+    fhir_auth_params = {'grant_type': 'client_credentials', 'client_id': SETTINGS['Options']['AidboxAuthClientId'].strip('"'), 'client_secret': SECRETS['FHIR']['AidboxAuthPw'].strip('"')}
     fhir_auth_response = requests.post(SETTINGS['Options']['AidboxAuthUrl'].strip('"'), headers = fhir_auth_headers, params = fhir_auth_params)
     if fhir_auth_response is not None:
         reply = fhir_auth_response.json()
