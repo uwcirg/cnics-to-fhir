@@ -524,7 +524,7 @@ while 'Job_' + str(job_cnt) in JOB_LIST['JobList']:
             
                         break
 
-                if len(pat_resource["extension"] == 0):
+                if len(pat_resource["extension"]) == 0:
                     del(pat_resource["extension"])
 
                 debug_logger.debug(orjson.dumps(pat_resource, option = orjson.OPT_NAIVE_UTC | orjson.OPT_INDENT_2).decode("utf-8"))
